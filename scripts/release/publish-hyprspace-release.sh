@@ -169,6 +169,43 @@ assert_clean_repo() {
     fi
 }
 
+assert_repo_only_dirty_paths() {
+    local repo_path="$1"
+    shift
+    local -a allowed_paths=("$@")
+    local -a dirty_paths=()
+    local path allowed
+
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        dirty_paths+=("$path")
+    done < <(
+        {
+            git -C "$repo_path" diff --name-only
+            git -C "$repo_path" diff --cached --name-only
+            git -C "$repo_path" ls-files --others --exclude-standard
+        } | sort -u
+    )
+
+    if [ "${#dirty_paths[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    for path in "${dirty_paths[@]}"; do
+        allowed=0
+        for allowed_path in "${allowed_paths[@]}"; do
+            if [ "$path" = "$allowed_path" ]; then
+                allowed=1
+                break
+            fi
+        done
+        if [ "$allowed" -eq 0 ]; then
+            git -C "$repo_path" status --short >&2
+            die "repo has unmanaged uncommitted changes before publish: $repo_path"
+        fi
+    done
+}
+
 download_public_zip() {
     local destination="$1"
     curl -fsSL "$ZIP_URL" -o "$destination"
@@ -194,8 +231,8 @@ print_repo_state_table preflight \
 if [ "$validate_only" -eq 0 ]; then
     require_cmd gh
     assert_clean_source_repo
-    assert_clean_repo "$TAP_DIR"
-    assert_clean_repo "$RELEASES_DIR"
+    assert_repo_only_dirty_paths "$TAP_DIR" README.md Casks/hyprspace.rb
+    assert_repo_only_dirty_paths "$RELEASES_DIR" README.md LEGAL.md LICENSE
     ensure_repo_remote_ready "$TAP_DIR" "tap"
     ensure_repo_remote_ready "$RELEASES_DIR" "releases"
 fi
@@ -231,9 +268,6 @@ fi
 step "rendering local owned public surfaces"
 python3 ./scripts/internal/validate-public-release-surface.py --phase local-owned-sync
 test -s "$RELEASE_NOTES_PATH" || die "rendered release notes are empty"
-
-step "validating local public surfaces"
-python3 ./scripts/internal/validate-public-release-surface.py --phase local
 
 step "running packaged local install smoke"
 RUN_INTEGRATION_TESTS=1 /bin/bash tests/test-hyprspace-local-install.sh

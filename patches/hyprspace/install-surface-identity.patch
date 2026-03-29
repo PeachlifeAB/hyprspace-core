@@ -284,7 +284,7 @@ diff --git a/build-release.sh b/build-release.sh
  
  # todo: make xcodebuild use the same toolchain as swift
  # toolchain="$(plutil -extract CFBundleIdentifier raw ~/Library/Developer/Toolchains/swift-6.1-RELEASE.xctoolchain/Info.plist)"
-@@ -44,40 +225,99 @@
+@@ -44,40 +225,97 @@
      -configuration "$xcode_configuration" \
      -derivedDataPath .xcode-build
  
@@ -402,7 +402,7 @@ diff --git a/build-release.sh b/build-release.sh
      exit 1
  fi
  
-@@ -89,41 +323,65 @@
+@@ -89,41 +323,63 @@
  }
  
  check-contains-hash() {

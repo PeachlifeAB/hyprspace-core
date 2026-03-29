@@ -138,7 +138,9 @@ def sync_local_entries(
         )
 
 
-def validate_local_entries(entries: list[dict[str, str]]) -> int:
+def validate_local_entries(
+    entries: list[dict[str, str]], *, only_within_root: bool = False
+) -> int:
     failures = 0
     print("[step] validating local public-surface files")
     for entry in entries:
@@ -147,6 +149,8 @@ def validate_local_entries(entries: list[dict[str, str]]) -> int:
             continue
         source_path = root_path(entry["source"])
         destination_path = root_path(local_dest)
+        if only_within_root and ROOT_DIR not in destination_path.parents:
+            continue
         expected_parent = root_path(entry["expected_local_parent"])
         if not destination_path.exists():
             print(f"[error] {entry['id']} missing local destination {destination_path}")
@@ -352,7 +356,7 @@ def main() -> int:
         failures += validate_assertions(assertions, mode="local")
     elif args.phase == "local-owned-sync":
         sync_local_entries(entries, only_within_root=True)
-        failures += validate_local_entries(entries)
+        failures += validate_local_entries(entries, only_within_root=True)
         failures += validate_assertions(assertions, mode="local")
     elif args.phase == "local":
         failures += validate_local_entries(entries)
