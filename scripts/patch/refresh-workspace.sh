@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$ROOT_DIR/scripts/internal/init-human-log.sh"
+init_human_log "$ROOT_DIR" patch refresh-workspace
 REPO_URL="https://github.com/nikitabobko/AeroSpace.git"
 source "$ROOT_DIR/scripts/verify/repo-state-table.sh"
 

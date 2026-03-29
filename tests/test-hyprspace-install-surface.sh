@@ -32,14 +32,18 @@ test -f .shell-completion/fish/hyprspace.fish
 test -f .shell-completion/bash/hyprspace
 
 echo "[step] asserting release/install scripts target hyprspace names"
-grep -q 'product hyprspace' build-release.sh
-grep -q 'Hyprspace.app' build-release.sh
-grep -q 'hyprspace' build-release.sh
-grep -q 'libexec/hyprspace-init' build-release.sh
-grep -q 'cp -r "$root_dir/artifacts" .release/artifacts' build-release.sh
-grep -q 'artifacts/docs/hyprspace-releases-README.md' build-release.sh
-grep -q 'artifacts/docs/bundled-legal-README.md' build-release.sh
-grep -q '\$root_dir/LICENSE' build-release.sh
+grep -q 'internal implementation detail' build-release.sh
+grep -q 'scripts/release/publish-hyprspace-release.sh' build-release.sh
+grep -q 'scripts/install/install-local.sh' build-release.sh
+test -x script/internal/build-release.sh
+grep -q 'product hyprspace' script/internal/build-release.sh
+grep -q 'Hyprspace.app' script/internal/build-release.sh
+grep -q 'hyprspace' script/internal/build-release.sh
+grep -q 'Contents/Resources/libexec/hyprspace-init' script/internal/build-release.sh
+grep -q 'cp -r "$root_dir/artifacts" .release/artifacts' script/internal/build-release.sh
+grep -q 'artifacts/docs/hyprspace-releases-README.md' script/internal/build-release.sh
+grep -q 'artifacts/docs/bundled-legal-README.md' script/internal/build-release.sh
+grep -q '\$root_dir/LICENSE' script/internal/build-release.sh
 grep -q 'homepage "https://hyprspace.net/"' script/build-brew-cask.sh
 grep -q 'url "\$zip_uri",' script/build-brew-cask.sh
 grep -q 'verified: "github.com/PeachlifeAB/hyprspace-releases/"' script/build-brew-cask.sh

@@ -37,6 +37,16 @@ repo_state_show() {
     git -C "$repo" show -s --format="$format" "$ref" 2>/dev/null || true
 }
 
+repo_state_default_homebrew_prefix() {
+    if command -v brew >/dev/null 2>&1; then
+        brew --prefix 2>/dev/null || true
+    elif [ "$(uname -m)" = "arm64" ]; then
+        printf '%s\n' "/opt/homebrew"
+    else
+        printf '%s\n' "/usr/local"
+    fi
+}
+
 print_path_timestamps() {
     local path="$1"
     local stat_output
@@ -425,23 +435,38 @@ print_env_and_symlink_state() {
 
     # brew prefix
     local brew_prefix
-    brew_prefix="$(brew --prefix 2>/dev/null || echo '<brew not found>')"
+    brew_prefix="$(repo_state_default_homebrew_prefix)"
     echo "[env] brew_prefix=$brew_prefix"
 
-    # stale symlink check: ~/.local/bin/hyprspace
-    local local_bin="$HOME/.local/bin/hyprspace"
-    if [ -L "$local_bin" ]; then
+    local installed_cli="$brew_prefix/bin/hyprspace"
+
+    if [ -L "$installed_cli" ]; then
         local target
-        target="$(readlink "$local_bin")"
-        if [ -e "$local_bin" ]; then
-            echo "[env] local-bin-symlink=$local_bin -> $target (valid)"
+        target="$(readlink "$installed_cli")"
+        if [ -e "$installed_cli" ]; then
+            echo "[env] installed-cli=$installed_cli -> $target (valid)"
         else
-            echo "[env] local-bin-symlink=$local_bin -> $target (STALE - target missing)"
+            echo "[env] installed-cli=$installed_cli -> $target (STALE - target missing)"
         fi
-    elif [ -e "$local_bin" ]; then
-        echo "[env] local-bin-symlink=$local_bin (not a symlink, regular file)"
+    elif [ -e "$installed_cli" ]; then
+        echo "[env] installed-cli=$installed_cli (not a symlink, regular file)"
     else
-        echo "[env] local-bin-symlink=$local_bin (absent)"
+        echo "[env] installed-cli=$installed_cli (absent)"
+    fi
+
+    local legacy_local_bin="$HOME/.local/bin/hyprspace"
+    if [ -L "$legacy_local_bin" ]; then
+        local target
+        target="$(readlink "$legacy_local_bin")"
+        if [ -e "$legacy_local_bin" ]; then
+            echo "[env] legacy-local-bin=$legacy_local_bin -> $target (valid)"
+        else
+            echo "[env] legacy-local-bin=$legacy_local_bin -> $target (STALE - target missing)"
+        fi
+    elif [ -e "$legacy_local_bin" ]; then
+        echo "[env] legacy-local-bin=$legacy_local_bin (not a symlink, regular file)"
+    else
+        echo "[env] legacy-local-bin=$legacy_local_bin (absent)"
     fi
 
     # duplicate server process check
@@ -487,8 +512,10 @@ PY
 print_accessibility_state() {
     local phase="$1"
     local app_binary="/Applications/Hyprspace.app/Contents/MacOS/Hyprspace"
-    local cli_wrapper="$HOME/.local/bin/hyprspace"
-    local cli_runtime="$HOME/.local/libexec/hyprspace-cli"
+    local brew_prefix cli_wrapper cli_runtime
+    brew_prefix="$(repo_state_default_homebrew_prefix)"
+    cli_wrapper="$brew_prefix/bin/hyprspace"
+    cli_runtime="/Applications/Hyprspace.app/Contents/Resources/libexec/hyprspace-cli"
 
     echo "[accessibility-state:${phase}] generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 

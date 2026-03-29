@@ -2,7 +2,9 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-root_dir="$(cd "$script_dir/.." && pwd)"
+root_dir="$(cd "$script_dir/../.." && pwd)"
+source "$root_dir/scripts/internal/init-human-log.sh"
+init_human_log "$root_dir" install test-installed-init
 install_prefix="${1:-$root_dir/.local-install-test}"
 target_home="${2:-$root_dir/.local-installed-init-home-manual}"
 runtime="$install_prefix/libexec/hyprspace-init/hyprspace-init"

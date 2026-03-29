@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$root_dir/scripts/internal/init-human-log.sh"
+init_human_log "$root_dir" patch normalize-series-patches
 patches_dir="$root_dir/patches"
 series_file="$patches_dir/series"
 

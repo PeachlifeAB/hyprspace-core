@@ -6,6 +6,8 @@ set -euo pipefail
 # Get the absolute path to the root of the repo
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$ROOT_DIR/scripts/internal/init-human-log.sh"
+init_human_log "$ROOT_DIR" install install-local
 cd "$ROOT_DIR"
 
 if [[ "${HYPRSPACE_USE_EXISTING_RELEASE:-0}" = "1" ]]; then
@@ -33,7 +35,7 @@ else
 
     # Bypass strict ruby version dependencies and missing shell-parsers using flags
     # Allow dirty tree because we are actively hacking on this fork and testing.
-    ./build-release.sh \
+    ./script/internal/build-release.sh \
         --build-version "$DEV_BUILD_VERSION" \
         --skip-docs \
         --skip-shell-parser \
@@ -59,46 +61,61 @@ echo "======================================================"
 echo "📦 Installing artifacts..."
 echo "======================================================"
 
-APP_DEST="${INSTALL_PREFIX:-/Applications}/Hyprspace.app"
-BIN_DEST="${INSTALL_PREFIX:-$HOME/.local}/bin/hyprspace"
+release_root="$ROOT_DIR/AeroSpace/.release"
+install_prefix="${INSTALL_PREFIX:-}"
+legacy_root="$HOME/.local"
+
+default_homebrew_prefix() {
+    if command -v brew >/dev/null 2>&1; then
+        brew --prefix
+    elif [ "$(uname -m)" = "arm64" ]; then
+        printf '%s\n' "/opt/homebrew"
+    else
+        printf '%s\n' "/usr/local"
+    fi
+}
+
+if [ -n "$install_prefix" ]; then
+    APP_DEST="$install_prefix/Hyprspace.app"
+    BIN_DEST="$install_prefix/bin/hyprspace"
+    LIBEXEC_DEST="$install_prefix/libexec"
+    SCRIPTS_DEST="$install_prefix/scripts"
+    ARTIFACTS_DEST="$install_prefix/artifacts"
+    live_install=0
+else
+    APP_DEST="/Applications/Hyprspace.app"
+    BREW_PREFIX="$(default_homebrew_prefix)"
+    BIN_DEST="$BREW_PREFIX/bin/hyprspace"
+    live_install=1
+fi
 
 # Remove old app and copy the newly built app
 echo "-> Installing $APP_DEST..."
 rm -rf "$APP_DEST"
 mkdir -p "$(dirname "$APP_DEST")"
-cp -R "AeroSpace/.release/Hyprspace.app" "$APP_DEST"
+cp -R "$release_root/Hyprspace.app" "$APP_DEST"
 
-# Install CLI tool
-echo "-> Installing $BIN_DEST..."
+# Install CLI tool as a symlink to the app bundle
+echo "-> Creating symlink at $BIN_DEST..."
 mkdir -p "$(dirname "$BIN_DEST")"
-cp "AeroSpace/.release/hyprspace" "$BIN_DEST"
-chmod +x "$BIN_DEST"
+ln -sf "$APP_DEST/Contents/Resources/bin/hyprspace" "$BIN_DEST"
 
-# Install packaged init runtime and support assets
-INSTALL_ROOT="${INSTALL_PREFIX:-$HOME/.local}"
-CLI_RUNTIME_DEST="$INSTALL_ROOT/libexec/hyprspace-cli"
-echo "-> Installing $CLI_RUNTIME_DEST..."
-mkdir -p "$(dirname "$CLI_RUNTIME_DEST")"
-cp "AeroSpace/.release/libexec/hyprspace-cli" "$CLI_RUNTIME_DEST"
-chmod +x "$CLI_RUNTIME_DEST"
-
-INIT_RUNTIME_DEST="$INSTALL_ROOT/libexec/hyprspace-init"
-echo "-> Installing $INIT_RUNTIME_DEST..."
-rm -rf "$INIT_RUNTIME_DEST"
-mkdir -p "$(dirname "$INIT_RUNTIME_DEST")"
-cp -R "AeroSpace/.release/libexec/hyprspace-init" "$INIT_RUNTIME_DEST"
-chmod +x "$INIT_RUNTIME_DEST/hyprspace-init" "$INIT_RUNTIME_DEST/apply-init-selections.sh"
-
-for support_dir in scripts artifacts AeroSpace; do
-    if [ -e "$INSTALL_ROOT/$support_dir" ]; then
-        rm -rf "$INSTALL_ROOT/$support_dir"
-    fi
-done
-cp -R "AeroSpace/.release/scripts" "$INSTALL_ROOT/scripts"
-cp -R "AeroSpace/.release/artifacts" "$INSTALL_ROOT/artifacts"
-mkdir -p "$INSTALL_ROOT/AeroSpace/docs"
-cp -R "AeroSpace/.release/AeroSpace/docs/config-examples" "$INSTALL_ROOT/AeroSpace/docs/config-examples"
-chmod +x "$INSTALL_ROOT/scripts/internal/setup-dependencies.sh" "$INSTALL_ROOT/scripts/internal/setup-hyprspace-config.sh" "$INSTALL_ROOT/scripts/internal/setup-sketchybar-config.sh" "$INSTALL_ROOT/scripts/internal/setup-macos-defaults.sh" "$INSTALL_ROOT/scripts/internal/setup-wallpaper.sh"
+if [ "$live_install" -eq 0 ]; then
+    echo "-> Mirroring packaged support files into $install_prefix..."
+    rm -rf "$LIBEXEC_DEST" "$SCRIPTS_DEST" "$ARTIFACTS_DEST"
+    mkdir -p "$LIBEXEC_DEST"
+    cp -R "$APP_DEST/Contents/Resources/libexec"/. "$LIBEXEC_DEST/"
+    cp -R "$release_root/scripts" "$SCRIPTS_DEST"
+    cp -R "$release_root/artifacts" "$ARTIFACTS_DEST"
+else
+    echo "-> Purging legacy installs from $legacy_root..."
+    rm -f "$legacy_root/bin/hyprspace"
+    rm -rf "$legacy_root/libexec/hyprspace-cli"
+    rm -rf "$legacy_root/libexec/hyprspace-init"
+    rm -rf "$legacy_root/libexec/hyprspace-update"
+    rm -rf "$legacy_root/scripts/internal/setup-dependencies.sh" 2>/dev/null || true
+    rm -rf "$legacy_root/artifacts/hyprspace" 2>/dev/null || true
+fi
 
 echo "======================================================"
 echo "📚 Installing opinionated companion dependencies..."
@@ -139,4 +156,4 @@ if [ "$APP_DEST" = "/Applications/Hyprspace.app" ]; then
 else
     open -a "$APP_DEST"
 fi
-echo "Ensure $HOME/.local/bin is in your PATH to use the 'hyprspace' CLI."
+echo "Ensure $(dirname "$BIN_DEST") is in your PATH to use the 'hyprspace' CLI."

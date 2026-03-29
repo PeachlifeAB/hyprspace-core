@@ -52,8 +52,8 @@ fi
 
 cd "$checkout_dir"
 
-echo "[step] running build-release.sh with local dev settings"
-./build-release.sh --build-version "$build_version" --skip-docs --skip-shell-parser --allow-dirty --codesign-identity -
+echo "[step] running internal release builder with local dev settings"
+./script/internal/build-release.sh --build-version "$build_version" --skip-docs --skip-shell-parser --allow-dirty --codesign-identity -
 
 echo "[step] asserting release artifacts"
 test -d .release/Hyprspace.app

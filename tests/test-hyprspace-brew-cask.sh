@@ -63,7 +63,7 @@ fi
 # Step 1: generate the cask from a local file URI so the test is isolated
 echo "[step] building release artifacts"
 cd "$checkout_dir"
-./build-release.sh --skip-docs --skip-shell-parser --allow-dirty --codesign-identity -
+./script/internal/build-release.sh --skip-docs --skip-shell-parser --allow-dirty --codesign-identity -
 
 echo "[step] generating cask from local release artifact"
 local_zip="$checkout_dir/.release/${zip_name}"

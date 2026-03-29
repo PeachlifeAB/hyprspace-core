@@ -64,306 +64,74 @@ diff --git a/Package.swift b/Package.swift
 diff --git a/build-release.sh b/build-release.sh
 --- a/build-release.sh
 +++ b/build-release.sh
-@@ -2,28 +2,209 @@
- cd "$(dirname "$0")"
- source ./script/setup.sh
+@@ -1,129 +1,10 @@
+ #!/bin/bash
+-cd "$(dirname "$0")"
+-source ./script/setup.sh
++set -euo pipefail
  
 -build_version="0.0.0-SNAPSHOT"
-+root_dir="$(cd .. && pwd)"
-+build_version="$(cat "$root_dir/version.txt")"
- codesign_identity="aerospace-codesign-certificate"
-+build_docs=1
-+generate_shell_parser=1
-+allow_dirty=0
- while test $# -gt 0; do
-     case $1 in
+-codesign_identity="aerospace-codesign-certificate"
+-while test $# -gt 0; do
+-    case $1 in
 -        --build-version) build_version="$2"; shift 2;;
 -        --codesign-identity) codesign_identity="$2"; shift 2;;
 -        *) echo "Unknown option $1" > /dev/stderr; exit 1 ;;
-+    --build-version)
-+        build_version="$2"
-+        shift 2
-+        ;;
-+    --codesign-identity)
-+        codesign_identity="$2"
-+        shift 2
-+        ;;
-+    --skip-docs)
-+        build_docs=0
-+        shift
-+        ;;
-+    --skip-shell-parser)
-+        generate_shell_parser=0
-+        shift
-+        ;;
-+    --allow-dirty)
-+        allow_dirty=1
-+        shift
-+        ;;
-+    *)
-+        echo "Unknown option $1" >/dev/stderr
-+        exit 1
-+        ;;
-     esac
- done
-+
-+restore_generated_dir="$(mktemp -d)"
-+cleanup_generated_dir() {
-+    rm -rf "$restore_generated_dir"
-+}
-+trap cleanup_generated_dir EXIT
-+
-+app_icon_set_dir="resources/Assets.xcassets/AppIcon.appiconset"
-+
-+snapshot_generated_file() {
-+    local path="$1"
-+    mkdir -p "$restore_generated_dir/$(dirname "$path")"
-+    cp "$path" "$restore_generated_dir/$path"
-+}
-+
-+restore_generated_file() {
-+    local path="$1"
-+    cp "$restore_generated_dir/$path" "$path"
-+}
-+
-+snapshot_directory() {
-+    local path="$1"
-+    mkdir -p "$restore_generated_dir/$path"
-+    cp -R "$path"/. "$restore_generated_dir/$path"
-+}
-+
-+restore_directory() {
-+    local path="$1"
-+    rm -rf "$path"
-+    mkdir -p "$path"
-+    cp -R "$restore_generated_dir/$path"/. "$path"
-+}
-+
-+copy_app_icon_asset() {
-+    local source_path="$1"
-+    local destination_name="$2"
-+
-+    if [ ! -f "$source_path" ]; then
-+        echo "ERROR: missing app icon source asset: $source_path" >&2
-+        exit 1
-+    fi
-+
-+    cp "$source_path" "$app_icon_set_dir/$destination_name"
-+}
-+
-+sync_app_icon_assets() {
-+    local icon_source_dir="$root_dir/artifacts/gfx/icons"
-+
-+    rm -f "$app_icon_set_dir"/*
-+
-+    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-16x16@1x.png" "icon_16x16.png"
-+    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-16x16@2x.png" "icon_16x16@2x.png"
-+    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-32x32@1x.png" "icon_32x32.png"
-+    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-32x32@2x.png" "icon_32x32@2x.png"
-+    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-128x128@1x.png" "icon_128x128.png"
-+    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-128x128@2x.png" "icon_128x128@2x.png"
-+    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-256x256@1x.png" "icon_256x256.png"
-+    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-256x256@2x.png" "icon_256x256@2x.png"
-+    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-512x512@1x.png" "icon_512x512.png"
-+    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-1024x1024@1x.png" "icon_512x512@2x.png"
-+
-+    cat >"$app_icon_set_dir/Contents.json" <<'EOF'
-+{
-+  "images" : [
-+    {
-+      "filename" : "icon_16x16.png",
-+      "idiom" : "mac",
-+      "scale" : "1x",
-+      "size" : "16x16"
-+    },
-+    {
-+      "filename" : "icon_16x16@2x.png",
-+      "idiom" : "mac",
-+      "scale" : "2x",
-+      "size" : "16x16"
-+    },
-+    {
-+      "filename" : "icon_32x32.png",
-+      "idiom" : "mac",
-+      "scale" : "1x",
-+      "size" : "32x32"
-+    },
-+    {
-+      "filename" : "icon_32x32@2x.png",
-+      "idiom" : "mac",
-+      "scale" : "2x",
-+      "size" : "32x32"
-+    },
-+    {
-+      "filename" : "icon_128x128.png",
-+      "idiom" : "mac",
-+      "scale" : "1x",
-+      "size" : "128x128"
-+    },
-+    {
-+      "filename" : "icon_128x128@2x.png",
-+      "idiom" : "mac",
-+      "scale" : "2x",
-+      "size" : "128x128"
-+    },
-+    {
-+      "filename" : "icon_256x256.png",
-+      "idiom" : "mac",
-+      "scale" : "1x",
-+      "size" : "256x256"
-+    },
-+    {
-+      "filename" : "icon_256x256@2x.png",
-+      "idiom" : "mac",
-+      "scale" : "2x",
-+      "size" : "256x256"
-+    },
-+    {
-+      "filename" : "icon_512x512.png",
-+      "idiom" : "mac",
-+      "scale" : "1x",
-+      "size" : "512x512"
-+    },
-+    {
-+      "filename" : "icon_512x512@2x.png",
-+      "idiom" : "mac",
-+      "scale" : "2x",
-+      "size" : "512x512"
-+    }
-+  ],
-+  "info" : {
-+    "author" : "xcode",
-+    "version" : 1
-+  }
-+}
+-    esac
+-done
++cat >&2 <<'EOF'
++ERROR: AeroSpace/build-release.sh is an internal implementation detail for Hyprspace.
++Use ./scripts/release/publish-hyprspace-release.sh <version> for release builds.
++Use ./scripts/install/install-local.sh for local install/build flows.
 +EOF
-+}
-+
-+for generated_file in \
-+    AeroSpace.xcodeproj/project.pbxproj \
-+    Sources/Common/versionGenerated.swift \
-+    Sources/Common/gitHashGenerated.swift \
-+    Sources/Common/cmdHelpGenerated.swift \
-+    Sources/Cli/subcommandDescriptionsGenerated.swift; do
-+    snapshot_generated_file "$generated_file"
-+done
-+snapshot_directory "$app_icon_set_dir"
  
- #############
- ### BUILD ###
- #############
- 
+-#############
+-### BUILD ###
+-#############
+-
 -./build-docs.sh
-+if test $build_docs = 1; then
-+    ./build-docs.sh
-+fi
- ./build-shell-completion.sh
- 
+-./build-shell-completion.sh
+-
 -./generate.sh
 -./script/check-uncommitted-files.sh
 -./generate.sh --build-version "$build_version" --codesign-identity "$codesign_identity" --generate-git-hash
 -
 -swift build -c release --arch arm64 --arch x86_64 --product aerospace -Xswiftc -warnings-as-errors # CLI
-+if test $generate_shell_parser = 1; then
-+    ./generate.sh --build-version "$build_version" --codesign-identity "$codesign_identity"
-+else
-+    ./generate.sh --build-version "$build_version" --codesign-identity "$codesign_identity" --ignore-shell-parser
-+fi
-+if test $allow_dirty = 0; then
-+    ./script/check-uncommitted-files.sh
-+fi
-+if test $generate_shell_parser = 1; then
-+    ./generate.sh --build-version "$build_version" --codesign-identity "$codesign_identity" --generate-git-hash
-+else
-+    ./generate.sh --build-version "$build_version" --codesign-identity "$codesign_identity" --generate-git-hash --ignore-shell-parser
-+fi
-+
-+sync_app_icon_assets
-+
-+swift build -c release --arch arm64 --arch x86_64 --product hyprspace -Xswiftc -warnings-as-errors # CLI
- 
- # todo: make xcodebuild use the same toolchain as swift
- # toolchain="$(plutil -extract CFBundleIdentifier raw ~/Library/Developer/Toolchains/swift-6.1-RELEASE.xctoolchain/Info.plist)"
-@@ -44,40 +225,97 @@
-     -configuration "$xcode_configuration" \
-     -derivedDataPath .xcode-build
- 
+-
+-# todo: make xcodebuild use the same toolchain as swift
+-# toolchain="$(plutil -extract CFBundleIdentifier raw ~/Library/Developer/Toolchains/swift-6.1-RELEASE.xctoolchain/Info.plist)"
+-# xcodebuild -toolchain "$toolchain" \
+-# Unfortunately, Xcode 16 fails with:
+-#     2025-05-05 15:51:15.618 xcodebuild[4633:13690815] Writing error result bundle to /var/folders/s1/17k6s3xd7nb5mv42nx0sd0800000gn/T/ResultBundle_2025-05-05_15-51-0015.xcresult
+-#     xcodebuild: error: Could not resolve package dependencies:
+-#       <unknown>:0: warning: legacy driver is now deprecated; consider avoiding specifying '-disallow-use-new-driver'
+-#     <unknown>:0: error: unable to execute command: <unknown>
+-
+-rm -rf .release && mkdir .release
+-
+-xcode_configuration="Release"
+-xcodebuild -version
+-xcodebuild-pretty .release/xcodebuild.log clean build \
+-    -scheme AeroSpace \
+-    -destination "generic/platform=macOS" \
+-    -configuration "$xcode_configuration" \
+-    -derivedDataPath .xcode-build
+-
 -git checkout .
 -
 -cp -r ".xcode-build/Build/Products/$xcode_configuration/AeroSpace.app" .release
 -cp -r .build/apple/Products/Release/aerospace .release
-+for generated_file in \
-+    AeroSpace.xcodeproj/project.pbxproj \
-+    Sources/Common/versionGenerated.swift \
-+    Sources/Common/gitHashGenerated.swift \
-+    Sources/Common/cmdHelpGenerated.swift \
-+    Sources/Cli/subcommandDescriptionsGenerated.swift; do
-+    restore_generated_file "$generated_file"
-+done
-+restore_directory "$app_icon_set_dir"
-+
-+cp -r ".xcode-build/Build/Products/$xcode_configuration/Hyprspace.app" .release
-+cp -r .build/apple/Products/Release/hyprspace .release
-+mkdir -p .release/libexec
-+mv .release/hyprspace .release/libexec/hyprspace-cli
-+cat >.release/hyprspace <<'EOF'
-+#!/bin/bash
-+set -euo pipefail
-+
-+resolve_real_path() {
-+    local source="${BASH_SOURCE[0]:-$1}"
-+    while [[ -L "$source" ]]; do
-+        local dir
-+        dir="$(cd -P "$(dirname "$source")" && pwd)"
-+        source="$(readlink "$source")"
-+        [[ "$source" != /* ]] && source="$dir/$source"
-+    done
-+    printf '%s\n' "$(cd -P "$(dirname "$source")" && pwd)/$(basename "$source")"
-+}
-+
-+script_path="$(resolve_real_path "$0")"
-+script_dir="$(cd -P "$(dirname "$script_path")" && pwd)"
-+if [ -x "$script_dir/libexec/hyprspace-cli" ]; then
-+    root_dir="$script_dir"
-+elif [ -x "$script_dir/../libexec/hyprspace-cli" ]; then
-+    root_dir="$(cd "$script_dir/.." && pwd)"
-+else
-+    echo "ERROR: missing packaged hyprspace CLI runtime" >&2
-+    exit 1
-+fi
-+
-+if [ "${1:-}" = "init" ]; then
-+    shift
-+    exec "$root_dir/libexec/hyprspace-init/hyprspace-init" "$@"
-+fi
-+
-+if [ "${1:-}" = "update" ]; then
-+    shift
-+    exec "$root_dir/libexec/hyprspace-update/hyprspace-update" "$@"
-+fi
-+
-+exec "$root_dir/libexec/hyprspace-cli" "$@"
-+EOF
-+chmod +x .release/hyprspace
-+cp -r "$root_dir/libexec/hyprspace-init" .release/libexec/hyprspace-init
-+cp -r "$root_dir/libexec/hyprspace-update" .release/libexec/hyprspace-update
-+chmod +x .release/libexec/hyprspace-init/hyprspace-init .release/libexec/hyprspace-init/apply-init-selections.sh .release/libexec/hyprspace-update/hyprspace-update
-+cp -r "$root_dir/scripts" .release/scripts
-+cp -r "$root_dir/artifacts" .release/artifacts
-+mkdir -p .release/AeroSpace/docs
-+cp -r ./docs/config-examples .release/AeroSpace/docs/config-examples
- 
- ################
- ### SIGN CLI ###
- ################
- 
+-
+-################
+-### SIGN CLI ###
+-################
+-
 -codesign -s "$codesign_identity" .release/aerospace
-+codesign -s "$codesign_identity" .release/libexec/hyprspace-cli
- 
- ################
- ### VALIDATE ###
- ################
- 
+-
+-################
+-### VALIDATE ###
+-################
+-
 -expected_layout=$(cat <<EOF
 -.release/AeroSpace.app
 -.release/AeroSpace.app/Contents
@@ -377,44 +145,30 @@ diff --git a/build-release.sh b/build-release.sh
 -.release/AeroSpace.app/Contents/Resources/Assets.car
 -.release/AeroSpace.app/Contents/Info.plist
 -.release/AeroSpace.app/Contents/PkgInfo
-+expected_layout=$(
-+    cat <<EOF
-+.release/Hyprspace.app
-+.release/Hyprspace.app/Contents
-+.release/Hyprspace.app/Contents/_CodeSignature
-+.release/Hyprspace.app/Contents/_CodeSignature/CodeResources
-+.release/Hyprspace.app/Contents/MacOS
-+.release/Hyprspace.app/Contents/MacOS/Hyprspace
-+.release/Hyprspace.app/Contents/Resources
-+.release/Hyprspace.app/Contents/Resources/default-config.toml
-+.release/Hyprspace.app/Contents/Resources/AppIcon.icns
-+.release/Hyprspace.app/Contents/Resources/Assets.car
-+.release/Hyprspace.app/Contents/Info.plist
-+.release/Hyprspace.app/Contents/PkgInfo
- EOF
- )
- 
+-EOF
+-)
+-
 -if test "$expected_layout" != "$(find .release/AeroSpace.app)"; then
-+if test "$expected_layout" != "$(find .release/Hyprspace.app)"; then
-     echo "!!! Expect/Actual layout don't match !!!"
+-    echo "!!! Expect/Actual layout don't match !!!"
 -    find .release/AeroSpace.app
-+    find .release/Hyprspace.app
-     exit 1
- fi
- 
-@@ -89,41 +323,63 @@
- }
- 
- check-contains-hash() {
+-    exit 1
+-fi
+-
+-check-universal-binary() {
+-    if ! file "$1" | grep --fixed-string -q "Mach-O universal binary with 2 architectures: [x86_64:Mach-O 64-bit executable x86_64] [arm64"; then
+-        echo "$1 is not a universal binary"
+-        exit 1
+-    fi
+-}
+-
+-check-contains-hash() {
 -    hash=$(git rev-parse HEAD)
 -    if ! strings "$1" | grep --fixed-string "$hash" > /dev/null; then
-+    hash=$(git -C "$root_dir" rev-parse HEAD)
-+    if ! strings "$1" | grep --fixed-string "$hash" >/dev/null; then
-         echo "$1 doesn't contain $hash"
-         exit 1
-     fi
- }
- 
+-        echo "$1 doesn't contain $hash"
+-        exit 1
+-    fi
+-}
+-
 -check-universal-binary .release/AeroSpace.app/Contents/MacOS/AeroSpace
 -check-universal-binary .release/aerospace
 -
@@ -423,67 +177,31 @@ diff --git a/build-release.sh b/build-release.sh
 -
 -codesign -v .release/AeroSpace.app
 -codesign -v .release/aerospace
-+check-universal-binary .release/Hyprspace.app/Contents/MacOS/Hyprspace
-+check-universal-binary .release/libexec/hyprspace-cli
-+
-+check-contains-hash .release/Hyprspace.app/Contents/MacOS/Hyprspace
-+check-contains-hash .release/libexec/hyprspace-cli
-+
-+codesign -v .release/Hyprspace.app
-+codesign -v .release/libexec/hyprspace-cli
- 
- ############
- ### PACK ###
- ############
- 
+-
+-############
+-### PACK ###
+-############
+-
 -mkdir -p ".release/AeroSpace-v$build_version/manpage" && cp .man/*.1 ".release/AeroSpace-v$build_version/manpage"
 -cp -r ./legal ".release/AeroSpace-v$build_version/legal"
 -cp -r .shell-completion ".release/AeroSpace-v$build_version/shell-completion"
-+if test $build_docs = 1; then
-+    mkdir -p ".release/Hyprspace-v$build_version/manpage" && cp .man/*.1 ".release/Hyprspace-v$build_version/manpage"
-+fi
-+mkdir -p ".release/Hyprspace-v$build_version"
-+cp "$root_dir/artifacts/docs/hyprspace-releases-README.md" ".release/Hyprspace-v$build_version/README.md"
-+cp -r ./legal ".release/Hyprspace-v$build_version/legal"
-+cp "$root_dir/artifacts/docs/bundled-legal-README.md" ".release/Hyprspace-v$build_version/legal/README.md"
-+cp "$root_dir/LICENSE" ".release/Hyprspace-v$build_version/legal/LICENSE.txt"
-+cp -r .shell-completion ".release/Hyprspace-v$build_version/shell-completion"
-+mkdir -p ".release/Hyprspace-v$build_version/libexec"
-+cp -r .release/libexec/hyprspace-cli ".release/Hyprspace-v$build_version/libexec/hyprspace-cli"
-+cp -r .release/libexec/hyprspace-init ".release/Hyprspace-v$build_version/libexec/hyprspace-init"
-+cp -r .release/libexec/hyprspace-update ".release/Hyprspace-v$build_version/libexec/hyprspace-update"
-+chmod +x \
-+    ".release/Hyprspace-v$build_version/libexec/hyprspace-init/hyprspace-init" \
-+    ".release/Hyprspace-v$build_version/libexec/hyprspace-init/apply-init-selections.sh" \
-+    ".release/Hyprspace-v$build_version/libexec/hyprspace-update/hyprspace-update"
-+if [ ! -x ".release/Hyprspace-v$build_version/libexec/hyprspace-init/hyprspace-init" ]; then
-+    echo "packaged hyprspace-init lost execute permission" >&2
-+    exit 1
-+fi
-+cp -r "$root_dir/scripts" ".release/Hyprspace-v$build_version/scripts"
-+cp -r "$root_dir/artifacts" ".release/Hyprspace-v$build_version/artifacts"
-+mkdir -p ".release/Hyprspace-v$build_version/AeroSpace/docs"
-+cp -r ./docs/config-examples ".release/Hyprspace-v$build_version/AeroSpace/docs/config-examples"
- cd .release
+-cd .release
 -    mkdir -p "AeroSpace-v$build_version/bin" && cp -r aerospace "AeroSpace-v$build_version/bin"
 -    cp -r AeroSpace.app "AeroSpace-v$build_version"
 -    zip -r "AeroSpace-v$build_version.zip" "AeroSpace-v$build_version"
-+mkdir -p "Hyprspace-v$build_version/bin" && cp -r hyprspace "Hyprspace-v$build_version/bin"
-+cp -r Hyprspace.app "Hyprspace-v$build_version"
-+zip -r "Hyprspace-v$build_version.zip" "Hyprspace-v$build_version"
- cd -
- 
- #################
- ### Brew Cask ###
- #################
+-cd -
+-
+-#################
+-### Brew Cask ###
+-#################
 -for cask_name in aerospace aerospace-dev; do
-+for cask_name in hyprspace; do
-     ./script/build-brew-cask.sh \
-         --cask-name "$cask_name" \
+-    ./script/build-brew-cask.sh \
+-        --cask-name "$cask_name" \
 -        --zip-uri ".release/AeroSpace-v$build_version.zip" \
-+        --zip-uri ".release/Hyprspace-v$build_version.zip" \
-         --build-version "$build_version"
- done
+-        --build-version "$build_version"
+-done
++exit 1
+
 diff --git a/build-shell-completion.sh b/build-shell-completion.sh
 --- a/build-shell-completion.sh
 +++ b/build-shell-completion.sh
@@ -902,3 +620,450 @@ diff --git a/script/build-brew-cask.sh b/script/build-brew-cask.sh
  
    Dir["#{staged_path}/$zip_root_dir/manpage/*"].each { |man| manpage man }
  end
+
+diff --git a/script/internal/build-release.sh b/script/internal/build-release.sh
+new file mode 100755
+--- /dev/null
++++ b/script/internal/build-release.sh
+@@ -0,0 +1,441 @@
++#!/bin/bash
++cd "$(dirname "$0")/../.."
++source ./script/setup.sh
++
++root_dir="$(cd .. && pwd)"
++build_version="$(cat "$root_dir/version.txt")"
++codesign_identity="aerospace-codesign-certificate"
++build_docs=1
++generate_shell_parser=1
++allow_dirty=0
++while test $# -gt 0; do
++    case $1 in
++    --build-version)
++        build_version="$2"
++        shift 2
++        ;;
++    --codesign-identity)
++        codesign_identity="$2"
++        shift 2
++        ;;
++    --skip-docs)
++        build_docs=0
++        shift
++        ;;
++    --skip-shell-parser)
++        generate_shell_parser=0
++        shift
++        ;;
++    --allow-dirty)
++        allow_dirty=1
++        shift
++        ;;
++    *)
++        echo "Unknown option $1" >/dev/stderr
++        exit 1
++        ;;
++    esac
++done
++
++restore_generated_dir="$(mktemp -d)"
++cleanup_generated_dir() {
++    rm -rf "$restore_generated_dir"
++}
++trap cleanup_generated_dir EXIT
++
++app_icon_set_dir="resources/Assets.xcassets/AppIcon.appiconset"
++
++snapshot_generated_file() {
++    local path="$1"
++    mkdir -p "$restore_generated_dir/$(dirname "$path")"
++    cp "$path" "$restore_generated_dir/$path"
++}
++
++restore_generated_file() {
++    local path="$1"
++    cp "$restore_generated_dir/$path" "$path"
++}
++
++snapshot_directory() {
++    local path="$1"
++    mkdir -p "$restore_generated_dir/$path"
++    cp -R "$path"/. "$restore_generated_dir/$path"
++}
++
++restore_directory() {
++    local path="$1"
++    rm -rf "$path"
++    mkdir -p "$path"
++    cp -R "$restore_generated_dir/$path"/. "$path"
++}
++
++strip_ds_store_files() {
++    local path="$1"
++    if [ -e "$path" ]; then
++        find "$path" -name '.DS_Store' -delete
++    fi
++}
++
++list_tree_with_prefix() {
++    local source_dir="$1"
++    local destination_prefix="$2"
++
++    if [ ! -e "$source_dir" ]; then
++        return 0
++    fi
++
++    while IFS= read -r path; do
++        local relative_path="${path#"$source_dir"}"
++        printf '%s%s\n' "$destination_prefix" "$relative_path"
++    done < <(find "$source_dir" ! -name '.DS_Store' | sort)
++}
++
++copy_app_icon_asset() {
++    local source_path="$1"
++    local destination_name="$2"
++
++    if [ ! -f "$source_path" ]; then
++        echo "ERROR: missing app icon source asset: $source_path" >&2
++        exit 1
++    fi
++
++    cp "$source_path" "$app_icon_set_dir/$destination_name"
++}
++
++sync_app_icon_assets() {
++    local icon_source_dir="$root_dir/artifacts/gfx/icons"
++
++    rm -f "$app_icon_set_dir"/*
++
++    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-16x16@1x.png" "icon_16x16.png"
++    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-16x16@2x.png" "icon_16x16@2x.png"
++    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-32x32@1x.png" "icon_32x32.png"
++    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-32x32@2x.png" "icon_32x32@2x.png"
++    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-128x128@1x.png" "icon_128x128.png"
++    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-128x128@2x.png" "icon_128x128@2x.png"
++    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-256x256@1x.png" "icon_256x256.png"
++    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-256x256@2x.png" "icon_256x256@2x.png"
++    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-512x512@1x.png" "icon_512x512.png"
++    copy_app_icon_asset "$icon_source_dir/IconComposer-iOS-Default-1024x1024@1x.png" "icon_512x512@2x.png"
++
++    cat >"$app_icon_set_dir/Contents.json" <<'EOF'
++{
++  "images" : [
++    {
++      "filename" : "icon_16x16.png",
++      "idiom" : "mac",
++      "scale" : "1x",
++      "size" : "16x16"
++    },
++    {
++      "filename" : "icon_16x16@2x.png",
++      "idiom" : "mac",
++      "scale" : "2x",
++      "size" : "16x16"
++    },
++    {
++      "filename" : "icon_32x32.png",
++      "idiom" : "mac",
++      "scale" : "1x",
++      "size" : "32x32"
++    },
++    {
++      "filename" : "icon_32x32@2x.png",
++      "idiom" : "mac",
++      "scale" : "2x",
++      "size" : "32x32"
++    },
++    {
++      "filename" : "icon_128x128.png",
++      "idiom" : "mac",
++      "scale" : "1x",
++      "size" : "128x128"
++    },
++    {
++      "filename" : "icon_128x128@2x.png",
++      "idiom" : "mac",
++      "scale" : "2x",
++      "size" : "128x128"
++    },
++    {
++      "filename" : "icon_256x256.png",
++      "idiom" : "mac",
++      "scale" : "1x",
++      "size" : "256x256"
++    },
++    {
++      "filename" : "icon_256x256@2x.png",
++      "idiom" : "mac",
++      "scale" : "2x",
++      "size" : "256x256"
++    },
++    {
++      "filename" : "icon_512x512.png",
++      "idiom" : "mac",
++      "scale" : "1x",
++      "size" : "512x512"
++    },
++    {
++      "filename" : "icon_512x512@2x.png",
++      "idiom" : "mac",
++      "scale" : "2x",
++      "size" : "512x512"
++    }
++  ],
++  "info" : {
++    "author" : "xcode",
++    "version" : 1
++  }
++}
++EOF
++}
++
++for generated_file in \
++    AeroSpace.xcodeproj/project.pbxproj \
++    Sources/Common/versionGenerated.swift \
++    Sources/Common/gitHashGenerated.swift \
++    Sources/Common/cmdHelpGenerated.swift \
++    Sources/Cli/subcommandDescriptionsGenerated.swift; do
++    snapshot_generated_file "$generated_file"
++done
++snapshot_directory "$app_icon_set_dir"
++
++#############
++### BUILD ###
++#############
++
++if test $build_docs = 1; then
++    ./build-docs.sh
++fi
++./build-shell-completion.sh
++
++if test $generate_shell_parser = 1; then
++    ./generate.sh --build-version "$build_version" --codesign-identity "$codesign_identity"
++else
++    ./generate.sh --build-version "$build_version" --codesign-identity "$codesign_identity" --ignore-shell-parser
++fi
++if test $allow_dirty = 0; then
++    ./script/check-uncommitted-files.sh
++fi
++if test $generate_shell_parser = 1; then
++    ./generate.sh --build-version "$build_version" --codesign-identity "$codesign_identity" --generate-git-hash
++else
++    ./generate.sh --build-version "$build_version" --codesign-identity "$codesign_identity" --generate-git-hash --ignore-shell-parser
++fi
++
++sync_app_icon_assets
++
++swift build -c release --arch arm64 --arch x86_64 --product hyprspace -Xswiftc -warnings-as-errors # CLI
++
++# todo: make xcodebuild use the same toolchain as swift
++# toolchain="$(plutil -extract CFBundleIdentifier raw ~/Library/Developer/Toolchains/swift-6.1-RELEASE.xctoolchain/Info.plist)"
++# xcodebuild -toolchain "$toolchain" \
++# Unfortunately, Xcode 16 fails with:
++#     2025-05-05 15:51:15.618 xcodebuild[4633:13690815] Writing error result bundle to /var/folders/s1/17k6s3xd7nb5mv42nx0sd0800000gn/T/ResultBundle_2025-05-05_15-51-0015.xcresult
++#     xcodebuild: error: Could not resolve package dependencies:
++#       <unknown>:0: warning: legacy driver is now deprecated; consider avoiding specifying '-disallow-use-new-driver'
++#     <unknown>:0: error: unable to execute command: <unknown>
++
++rm -rf .release && mkdir .release
++
++xcode_configuration="Release"
++xcodebuild -version
++xcodebuild-pretty .release/xcodebuild.log clean build \
++    -scheme AeroSpace \
++    -destination "generic/platform=macOS" \
++    -configuration "$xcode_configuration" \
++    -derivedDataPath .xcode-build
++
++for generated_file in \
++    AeroSpace.xcodeproj/project.pbxproj \
++    Sources/Common/versionGenerated.swift \
++    Sources/Common/gitHashGenerated.swift \
++    Sources/Common/cmdHelpGenerated.swift \
++    Sources/Cli/subcommandDescriptionsGenerated.swift; do
++    restore_generated_file "$generated_file"
++done
++restore_directory "$app_icon_set_dir"
++
++cp -r ".xcode-build/Build/Products/$xcode_configuration/Hyprspace.app" .release
++cp -r .build/apple/Products/Release/hyprspace .release
++
++app_layout_before_custom_resources="$(find .release/Hyprspace.app ! -name '.DS_Store' | sort)"
++
++mkdir -p .release/Hyprspace.app/Contents/Resources/bin
++mkdir -p .release/Hyprspace.app/Contents/Resources/libexec
++mkdir -p .release/Hyprspace.app/Contents/Resources/scripts
++mkdir -p .release/Hyprspace.app/Contents/Resources/artifacts
++mkdir -p .release/Hyprspace.app/Contents/Resources/AeroSpace/docs
++
++mkdir -p .release/libexec
++mv .release/hyprspace .release/libexec/hyprspace-cli
++cat >.release/hyprspace <<'EOF'
++#!/bin/bash
++set -euo pipefail
++
++resolve_real_path() {
++    local source="${BASH_SOURCE[0]:-$1}"
++    while [[ -L "$source" ]]; do
++        local dir
++        dir="$(cd -P "$(dirname "$source")" && pwd)"
++        source="$(readlink "$source")"
++        [[ "$source" != /* ]] && source="$dir/$source"
++    done
++    printf '%s\n' "$(cd -P "$(dirname "$source")" && pwd)/$(basename "$source")"
++}
++
++script_path="$(resolve_real_path "$0")"
++script_dir="$(cd -P "$(dirname "$script_path")" && pwd)"
++if [ -x "$script_dir/libexec/hyprspace-cli" ]; then
++    root_dir="$script_dir"
++elif [ -x "$script_dir/../libexec/hyprspace-cli" ]; then
++    root_dir="$(cd "$script_dir/.." && pwd)"
++else
++    echo "ERROR: missing packaged hyprspace CLI runtime" >&2
++    exit 1
++fi
++
++if [ "${1:-}" = "init" ]; then
++    shift
++    exec "$root_dir/libexec/hyprspace-init/hyprspace-init" "$@"
++fi
++
++if [ "${1:-}" = "update" ]; then
++    shift
++    exec "$root_dir/libexec/hyprspace-update/hyprspace-update" "$@"
++fi
++
++exec "$root_dir/libexec/hyprspace-cli" "$@"
++EOF
++chmod +x .release/hyprspace
++
++cp .release/hyprspace .release/Hyprspace.app/Contents/Resources/bin/hyprspace
++chmod +x .release/Hyprspace.app/Contents/Resources/bin/hyprspace
++
++cp -r "$root_dir/libexec/hyprspace-init" .release/libexec/hyprspace-init
++cp -r "$root_dir/libexec/hyprspace-update" .release/libexec/hyprspace-update
++cp .release/libexec/hyprspace-cli .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-cli
++cp -r "$root_dir/libexec/hyprspace-init" .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init
++cp -r "$root_dir/libexec/hyprspace-update" .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-update
++cp -R "$root_dir/scripts"/. .release/Hyprspace.app/Contents/Resources/scripts/
++cp -R "$root_dir/artifacts"/. .release/Hyprspace.app/Contents/Resources/artifacts/
++cp -r ./docs/config-examples .release/Hyprspace.app/Contents/Resources/AeroSpace/docs/config-examples
++chmod +x .release/libexec/hyprspace-init/hyprspace-init .release/libexec/hyprspace-init/apply-init-selections.sh .release/libexec/hyprspace-update/hyprspace-update
++chmod +x \
++    .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-cli \
++    .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init/hyprspace-init \
++    .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init/apply-init-selections.sh \
++    .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-update/hyprspace-update
++cp -r "$root_dir/scripts" .release/scripts
++cp -r "$root_dir/artifacts" .release/artifacts
++mkdir -p .release/AeroSpace/docs
++cp -r ./docs/config-examples .release/AeroSpace/docs/config-examples
++
++strip_ds_store_files .release
++
++################
++### SIGN CLI ###
++################
++
++codesign -s "$codesign_identity" .release/libexec/hyprspace-cli
++codesign -f -s "$codesign_identity" .release/Hyprspace.app
++
++################
++### VALIDATE ###
++################
++
++expected_layout=$(
++    {
++        printf '%s\n' "$app_layout_before_custom_resources"
++        printf '%s\n' .release/Hyprspace.app/Contents/Resources/bin
++        printf '%s\n' .release/Hyprspace.app/Contents/Resources/bin/hyprspace
++        printf '%s\n' .release/Hyprspace.app/Contents/Resources/libexec
++        printf '%s\n' .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-cli
++        list_tree_with_prefix "$root_dir/libexec/hyprspace-init" .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init
++        list_tree_with_prefix "$root_dir/libexec/hyprspace-update" .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-update
++        list_tree_with_prefix "$root_dir/scripts" .release/Hyprspace.app/Contents/Resources/scripts
++        list_tree_with_prefix "$root_dir/artifacts" .release/Hyprspace.app/Contents/Resources/artifacts
++        printf '%s\n' .release/Hyprspace.app/Contents/Resources/AeroSpace
++        printf '%s\n' .release/Hyprspace.app/Contents/Resources/AeroSpace/docs
++        list_tree_with_prefix ./docs/config-examples .release/Hyprspace.app/Contents/Resources/AeroSpace/docs/config-examples
++    } | sed '/^$/d' | sort -u
++)
++
++actual_layout="$(find .release/Hyprspace.app ! -name '.DS_Store' | sort)"
++
++if test "$expected_layout" != "$actual_layout"; then
++    echo "!!! Expect/Actual layout don't match !!!"
++    echo "Expected:"
++    echo "$expected_layout"
++    echo "Actual:"
++    echo "$actual_layout"
++    exit 1
++fi
++
++check-universal-binary() {
++    if ! file "$1" | grep --fixed-string -q "Mach-O universal binary with 2 architectures: [x86_64:Mach-O 64-bit executable x86_64] [arm64"; then
++        echo "$1 is not a universal binary"
++        exit 1
++    fi
++}
++
++check-contains-hash() {
++    hash=$(git -C "$root_dir" rev-parse HEAD)
++    if ! strings "$1" | grep --fixed-string "$hash" >/dev/null; then
++        echo "$1 doesn't contain $hash"
++        exit 1
++    fi
++}
++
++check-universal-binary .release/Hyprspace.app/Contents/MacOS/Hyprspace
++check-universal-binary .release/libexec/hyprspace-cli
++
++check-contains-hash .release/Hyprspace.app/Contents/MacOS/Hyprspace
++check-contains-hash .release/libexec/hyprspace-cli
++
++codesign -v .release/Hyprspace.app
++codesign -v .release/libexec/hyprspace-cli
++
++############
++### PACK ###
++############
++
++if test $build_docs = 1; then
++    mkdir -p ".release/Hyprspace-v$build_version/manpage" && cp .man/*.1 ".release/Hyprspace-v$build_version/manpage"
++fi
++mkdir -p ".release/Hyprspace-v$build_version"
++cp "$root_dir/artifacts/docs/hyprspace-releases-README.md" ".release/Hyprspace-v$build_version/README.md"
++cp -r ./legal ".release/Hyprspace-v$build_version/legal"
++cp "$root_dir/artifacts/docs/bundled-legal-README.md" ".release/Hyprspace-v$build_version/legal/README.md"
++cp "$root_dir/LICENSE" ".release/Hyprspace-v$build_version/legal/LICENSE.txt"
++cp -r .shell-completion ".release/Hyprspace-v$build_version/shell-completion"
++mkdir -p ".release/Hyprspace-v$build_version/libexec"
++cp -r .release/libexec/hyprspace-cli ".release/Hyprspace-v$build_version/libexec/hyprspace-cli"
++cp -r .release/libexec/hyprspace-init ".release/Hyprspace-v$build_version/libexec/hyprspace-init"
++cp -r .release/libexec/hyprspace-update ".release/Hyprspace-v$build_version/libexec/hyprspace-update"
++chmod +x \
++    ".release/Hyprspace-v$build_version/libexec/hyprspace-init/hyprspace-init" \
++    ".release/Hyprspace-v$build_version/libexec/hyprspace-init/apply-init-selections.sh" \
++    ".release/Hyprspace-v$build_version/libexec/hyprspace-update/hyprspace-update"
++if [ ! -x ".release/Hyprspace-v$build_version/libexec/hyprspace-init/hyprspace-init" ]; then
++    echo "packaged hyprspace-init lost execute permission" >&2
++    exit 1
++fi
++cp -r "$root_dir/scripts" ".release/Hyprspace-v$build_version/scripts"
++cp -r "$root_dir/artifacts" ".release/Hyprspace-v$build_version/artifacts"
++mkdir -p ".release/Hyprspace-v$build_version/AeroSpace/docs"
++cp -r ./docs/config-examples ".release/Hyprspace-v$build_version/AeroSpace/docs/config-examples"
++strip_ds_store_files ".release/Hyprspace-v$build_version"
++cd .release
++mkdir -p "Hyprspace-v$build_version/bin" && cp -r hyprspace "Hyprspace-v$build_version/bin"
++cp -r Hyprspace.app "Hyprspace-v$build_version"
++zip -r "Hyprspace-v$build_version.zip" "Hyprspace-v$build_version"
++cd -
++
++#################
++### Brew Cask ###
++#################
++./script/build-brew-cask.sh \
++    --cask-name hyprspace \
++    --zip-uri ".release/Hyprspace-v$build_version.zip" \
++    --build-version "$build_version"

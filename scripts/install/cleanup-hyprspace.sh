@@ -13,6 +13,8 @@ RESET_MACOS_DEFAULTS=0
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="$(cd "$script_dir/../.." && pwd)"
+source "$root_dir/scripts/internal/init-human-log.sh"
+init_human_log "$root_dir" install cleanup-hyprspace
 source "$root_dir/scripts/verify/repo-state-table.sh"
 
 SNAPSHOT_ROOT="$root_dir/../snapshots/Hyprspace/local-configs"
@@ -437,6 +439,9 @@ delete_path "$HOME_DIR/.aerospace.toml"
 delete_path "$HOME_DIR/Library/Application Support/Hyprspace"
 delete_path "$HOME_DIR/Library/Application Support/AeroSpace"
 delete_path "$HOME_DIR/.config/aerospace"
+if [ -n "$BREW_PREFIX" ]; then
+    delete_path "$BREW_PREFIX/bin/hyprspace"
+fi
 delete_path "$HOME_DIR/.local/bin/hyprspace"
 delete_path "$HOME_DIR/.local/bin/aerospace"
 delete_path "$HOME_DIR/.local/libexec/hyprspace-cli"

@@ -5,6 +5,16 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="$(cd "$script_dir/.." && pwd)"
 source "$root_dir/tests/_common.sh"
 
+default_homebrew_prefix() {
+    if command -v brew >/dev/null 2>&1; then
+        brew --prefix
+    elif [ "$(uname -m)" = "arm64" ]; then
+        printf '%s\n' "/opt/homebrew"
+    else
+        printf '%s\n' "/usr/local"
+    fi
+}
+
 declare -a HYPRSPACE_TEST_CLEANUP_PATHS=()
 declare -a HYPRSPACE_TEST_TRACKED_APPS=("Hyprspace" "AeroSpace")
 require_opt_in RUN_DESTRUCTIVE_TESTS "test-hyprspace-real-install.sh is in the destructive tier."
@@ -14,7 +24,7 @@ for arg in "$@"; do
     [ "$arg" = "--yes" ] && confirmed=true
 done
 if [ "$confirmed" = false ]; then
-    echo "⚠️  This script installs to live system paths (/Applications, ~/.local/bin)."
+    echo "⚠️  This script installs to live system paths (/Applications, $(default_homebrew_prefix)/bin)."
     echo "   Pass --yes to confirm and proceed."
     exit 1
 fi
@@ -49,7 +59,7 @@ echo "[step] running real install-local.sh"
 "$root_dir/scripts/install/install-local.sh"
 
 echo "[step] checking CLI on PATH"
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="$(default_homebrew_prefix)/bin:$PATH"
 which hyprspace
 cli_output="$(hyprspace --version 2>&1)"
 printf '%s\n' "$cli_output"

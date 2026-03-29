@@ -264,11 +264,11 @@ run_apply_script() {
 }
 
 hyprspace_app_path() {
-    local bundled_app
-    bundled_app="$(cd "$runtime_root/../.." && pwd)/Hyprspace.app"
+    local app_dir
+    app_dir="${runtime_root%/Contents/Resources/libexec/hyprspace-init}"
 
-    if [ -d "$bundled_app" ]; then
-        printf '%s\n' "$bundled_app"
+    if [ "$app_dir" != "$runtime_root" ] && [ -d "$app_dir" ]; then
+        printf '%s\n' "$app_dir"
         return 0
     fi
 

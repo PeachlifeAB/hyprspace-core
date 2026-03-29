@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="${REGENERATE_PATCH_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+source "$ROOT_DIR/scripts/internal/init-human-log.sh"
+init_human_log "$ROOT_DIR" patch regenerate-patch
 PATCHES_DIR="$ROOT_DIR/patches"
 SERIES_FILE="$PATCHES_DIR/series"
 LIVE_TREE="$ROOT_DIR/AeroSpace"
@@ -487,12 +489,19 @@ def read_lines(path: pathlib.Path):
         return []
     return path.read_text(encoding='utf-8', errors='surrogateescape').splitlines(keepends=True)
 
+def file_mode(path: pathlib.Path):
+    if not path.exists():
+        return None
+    return f"100{path.stat().st_mode & 0o777:03o}"
+
 chunks = []
 for rel in paths:
     left_path = left_root / rel
     right_path = right_root / rel
     left_exists = left_path.exists()
     right_exists = right_path.exists()
+    left_mode = file_mode(left_path)
+    right_mode = file_mode(right_path)
 
     if not left_exists and not right_exists:
         continue
@@ -504,14 +513,17 @@ for rel in paths:
 
     chunk = [f"diff --git a/{rel} b/{rel}"]
     if not left_exists:
-        chunk.append("new file mode 100644")
+        chunk.append(f"new file mode {right_mode}")
         fromfile = "/dev/null"
         tofile = f"b/{rel}"
     elif not right_exists:
-        chunk.append("deleted file mode 100644")
+        chunk.append(f"deleted file mode {left_mode}")
         fromfile = f"a/{rel}"
         tofile = "/dev/null"
     else:
+        if left_mode != right_mode:
+            chunk.append(f"old mode {left_mode}")
+            chunk.append(f"new mode {right_mode}")
         fromfile = f"a/{rel}"
         tofile = f"b/{rel}"
 
