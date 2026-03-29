@@ -1,0 +1,275 @@
+# Summary: Adds the app-menu command so Hyprspace can activate a running app and inspect or click menu items through Accessibility APIs.
+
+diff --git a/Sources/AppBundle/command/Command.swift b/Sources/AppBundle/command/Command.swift
+--- a/Sources/AppBundle/command/Command.swift
++++ b/Sources/AppBundle/command/Command.swift
+@@ -9,9 +9,16 @@
+ 
+     /// We should reset closedWindowsCache when the command can potentiall change the tree
+     var shouldResetClosedWindowsCache: Bool { get }
++
++    var shouldRefreshModel: Bool { get }
++
++    var shouldRunInLightSession: Bool { get }
+ }
+ 
+ extension Command {
++    var shouldRefreshModel: Bool { true }
++    var shouldRunInLightSession: Bool { true }
++
+     static func == (lhs: Self, rhs: Self) -> Bool {
+         return lhs.args.equals(rhs.args)
+     }
+@@ -47,7 +54,7 @@
+         for command in self {
+             isSucc = try await command.run(env, io) && isSucc
+             if command.shouldResetClosedWindowsCache { resetClosedWindowsCache() }
+-            refreshModel()
++            if command.shouldRefreshModel { refreshModel() }
+         }
+         return isSucc
+     }
+
+diff --git a/Sources/AppBundle/server.swift b/Sources/AppBundle/server.swift
+--- a/Sources/AppBundle/server.swift
++++ b/Sources/AppBundle/server.swift
+@@ -38,7 +38,7 @@
+     _ = try? socket.readString()
+ }
+ 
+-private let serverVersionAndHash = "\(aeroSpaceAppVersion) \(gitHash)"
++private let serverVersionAndHash = "\(hyprSpaceVersion) \(gitHash)"
+ 
+ private func newConnection(_ socket: Socket) async { // todo add exit codes
+     func answerToClient(exitCode: Int32, stdout: String = "", stderr: String = "") {
+@@ -91,12 +91,22 @@
+             continue
+         }
+         if let command {
++            let env = CmdEnv.init(
++                windowId: request.windowId.flatMap { $0 },
++                workspaceName: request.workspace.flatMap { $0 },
++            )
+             let _answer: Result<ServerAnswer, Error> = await Task { @MainActor in
+-                try await runLightSession(.socketServer, token) { () throws in
+-                    let env = CmdEnv.init(
+-                        windowId: request.windowId.flatMap { $0 },
+-                        workspaceName: request.workspace.flatMap { $0 },
+-                    )
++                if command.shouldRunInLightSession {
++                    return try await runLightSession(.socketServer, token) { () throws in
++                        let cmdResult = try await command.run(env, CmdStdin(request.stdin))
++                        return ServerAnswer(
++                            exitCode: cmdResult.exitCode,
++                            stdout: cmdResult.stdout.joined(separator: "\n"),
++                            stderr: cmdResult.stderr.joined(separator: "\n"),
++                            serverVersionAndHash: serverVersionAndHash,
++                        )
++                    }
++                } else {
+                     let cmdResult = try await command.run(env, CmdStdin(request.stdin))
+                     return ServerAnswer(
+                         exitCode: cmdResult.exitCode,
+
+diff --git a/Sources/Common/cmdArgs/cmdArgsManifest.swift b/Sources/Common/cmdArgs/cmdArgsManifest.swift
+--- a/Sources/Common/cmdArgs/cmdArgsManifest.swift
++++ b/Sources/Common/cmdArgs/cmdArgsManifest.swift
+@@ -1,6 +1,7 @@
+ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
+     // Sorted
+ 
++    case appMenu = "app-menu"
+     case balanceSizes = "balance-sizes"
+     case close
+     case closeAllWindowsButCurrent = "close-all-windows-but-current"
+@@ -44,6 +45,8 @@
+     var result: [String: any SubCommandParserProtocol] = [:]
+     for kind in CmdKind.allCases {
+         switch kind {
++            case .appMenu:
++                result[kind.rawValue] = SubCommandParser(AppMenuCmdArgs.init)
+             case .balanceSizes:
+                 result[kind.rawValue] = SubCommandParser(BalanceSizesCmdArgs.init)
+             case .close:
+
+diff --git a/Sources/AppBundle/command/cmdManifest.swift b/Sources/AppBundle/command/cmdManifest.swift
+--- a/Sources/AppBundle/command/cmdManifest.swift
++++ b/Sources/AppBundle/command/cmdManifest.swift
+@@ -4,6 +4,8 @@
+     func toCommand() -> any Command {
+         let command: any Command
+         switch Self.info.kind {
++            case .appMenu:
++                command = AppMenuCommand(args: self as! AppMenuCmdArgs)
+             case .balanceSizes:
+                 command = BalanceSizesCommand(args: self as! BalanceSizesCmdArgs)
+             case .close:
+
+diff --git a/Sources/AppBundle/command/impl/AppMenuCommand.swift b/Sources/AppBundle/command/impl/AppMenuCommand.swift
+new file mode 100644
+--- /dev/null
++++ b/Sources/AppBundle/command/impl/AppMenuCommand.swift
+@@ -0,0 +1,87 @@
++import AppKit
++import Common
++import Foundation
++
++struct AppMenuLeaf {
++    let element: AXUIElement
++    let leaf: String
++    let fullPath: String
++}
++
++struct AppMenuCommand: Command {
++    let args: AppMenuCmdArgs
++    /*conforms*/ let shouldResetClosedWindowsCache = false
++
++    @MainActor
++    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
++        guard let bundleId = args.appBundleId else {
++            return io.err("--app-bundle-id is required")
++        }
++        guard let leaves = try await activateAppAndCollectMenuLeaves(bundleId: bundleId, io: io) else {
++            return false
++        }
++        let pattern = (args.matchLeaf ?? (args.clickFirst ? "new" : nil)).map { $0.lowercased() }
++        let matched = pattern.map { p in leaves.filter { $0.leaf.lowercased().hasPrefix(p) } } ?? leaves
++        if args.clickFirst {
++            guard let element = matched.first else {
++                return io.err("No matching menu item found")
++            }
++            let actionResult = AXUIElementPerformAction(element.element, kAXPressAction as CFString)
++            guard actionResult == .success else {
++                return io.err("Failed to press menu item '\(element.fullPath)' for '\(bundleId)': AXError \(actionResult.rawValue)")
++            }
++            return true
++        }
++        for item in matched {
++            _ = io.out(item.fullPath)
++        }
++        return true
++    }
++}
++
++@MainActor
++func activateAppAndCollectMenuLeaves(bundleId: String, io: CmdIo) async throws -> [AppMenuLeaf]? {
++    guard let app = NSWorkspace.shared.runningApplications.first(where: {
++        $0.bundleIdentifier == bundleId
++    }) else {
++        return io.err("Application '\(bundleId)' is not running") ? nil : nil
++    }
++    app.activate(options: .activateIgnoringOtherApps)
++    var waited = 0
++    while NSWorkspace.shared.frontmostApplication?.bundleIdentifier != bundleId && waited < 20 {
++        try await Task.sleep(nanoseconds: 100_000_000)
++        waited += 1
++    }
++    try await Task.sleep(nanoseconds: 200_000_000)
++
++    let axApp = AXUIElementCreateApplication(app.processIdentifier)
++    var menuBarRaw: AnyObject?
++    guard AXUIElementCopyAttributeValue(axApp, kAXMenuBarAttribute as CFString, &menuBarRaw) == .success,
++          let menuBarRaw,
++          CFGetTypeID(menuBarRaw) == AXUIElementGetTypeID() else {
++        return io.err("Could not access menu bar for '\(bundleId)'") ? nil : nil
++    }
++    return collectLeaves(menuBarRaw as! AXUIElement)
++}
++
++private func collectLeaves(_ element: AXUIElement, path: [String] = [], actionElement: AXUIElement? = nil) -> [AppMenuLeaf] {
++    var childrenRaw: AnyObject?
++    guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRaw) == .success,
++          let children = childrenRaw as? [AXUIElement], !children.isEmpty else {
++        var titleRaw: AnyObject?
++        guard AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &titleRaw) == .success,
++              let leaf = titleRaw as? String, !leaf.isEmpty else { return [] }
++        let fullPath = (path + [leaf]).joined(separator: " / ")
++        return [AppMenuLeaf(element: actionElement ?? element, leaf: leaf, fullPath: fullPath)]
++    }
++    return children.flatMap { child -> [AppMenuLeaf] in
++        var titleRaw: AnyObject?
++        AXUIElementCopyAttributeValue(child, kAXTitleAttribute as CFString, &titleRaw)
++        let title = (titleRaw as? String) ?? ""
++        var roleRaw: AnyObject?
++        AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &roleRaw)
++        let role = roleRaw as? String
++        let nextActionElement = role == kAXMenuItemRole ? child : actionElement
++        return collectLeaves(child, path: title.isEmpty ? path : path + [title], actionElement: nextActionElement)
++    }
++}
+
+diff --git a/Sources/AppBundleTests/command/AppMenuCommandTest.swift b/Sources/AppBundleTests/command/AppMenuCommandTest.swift
+new file mode 100644
+--- /dev/null
++++ b/Sources/AppBundleTests/command/AppMenuCommandTest.swift
+@@ -0,0 +1,16 @@
++@testable import AppBundle
++import Common
++import XCTest
++
++final class AppMenuCommandTest: XCTestCase {
++    func testParse() {
++        testParseCommandSucc(
++            "app-menu --app-bundle-id com.mitchellh.ghostty --match-leaf 'new window' --click-first",
++            AppMenuCmdArgs(rawArgs: []).copy(\.appBundleId, "com.mitchellh.ghostty").copy(\.matchLeaf, "new window").copy(\.clickFirst, true)
++        )
++        testParseCommandSucc(
++            "app-menu --app-bundle-id com.mitchellh.ghostty",
++            AppMenuCmdArgs(rawArgs: []).copy(\.appBundleId, "com.mitchellh.ghostty")
++        )
++    }
++}
+
+diff --git a/Sources/Common/cmdArgs/impl/AppMenuCmdArgs.swift b/Sources/Common/cmdArgs/impl/AppMenuCmdArgs.swift
+new file mode 100644
+--- /dev/null
++++ b/Sources/Common/cmdArgs/impl/AppMenuCmdArgs.swift
+@@ -0,0 +1,21 @@
++public struct AppMenuCmdArgs: CmdArgs {
++    public let rawArgsForStrRepr: EquatableNoop<StrArrSlice>
++    public init(rawArgs: StrArrSlice) { self.rawArgsForStrRepr = .init(rawArgs) }
++    public static let parser: CmdParser<Self> = cmdParser(
++        kind: .appMenu,
++        allowInConfig: false,
++        help: "USAGE: aerospace app-menu --app-bundle-id <id> [--match-leaf <pattern>] [--click-first]",
++        flags: [
++            "--app-bundle-id": singleValueSubArgParser(\.appBundleId, "<app-bundle-id>") { $0 },
++            "--match-leaf": singleValueSubArgParser(\.matchLeaf, "<pattern>") { $0 },
++            "--click-first": trueBoolFlag(\.clickFirst),
++        ],
++        posArgs: [],
++    )
++
++    /*conforms*/ public var windowId: UInt32?
++    /*conforms*/ public var workspaceName: WorkspaceName?
++    public var appBundleId: String?
++    public var matchLeaf: String?
++    public var clickFirst: Bool = false
++}
+
+diff --git a/docs/aerospace-app-menu.adoc b/docs/aerospace-app-menu.adoc
+new file mode 100644
+--- /dev/null
++++ b/docs/aerospace-app-menu.adoc
+@@ -0,0 +1,21 @@
++= app-menu(1)
++
++== Name
++
++app-menu - activate an application and select a menu item
++
++== Synopsis
++
++`aerospace app-menu --app-bundle-id <app-bundle-id> [--match-leaf <pattern>] [--click-first]`
++
++== Description
++
++Activate an application by bundle identifier, list matching menu leaves, or click the first matched leaf.
++
++When `--click-first` is provided without `--match-leaf`, the command defaults to matching menu items whose labels start with "new". To match a different prefix, supply `--match-leaf <pattern>` alongside `--click-first`.
++
++This is the minimal building block for Hyprspace-style app-window creation workflows.
++
++== Examples
++
++`aerospace app-menu --app-bundle-id com.mitchellh.ghostty --match-leaf "New Window" --click-first`

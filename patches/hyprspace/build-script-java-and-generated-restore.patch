@@ -1,0 +1,87 @@
+# Summary: Makes the stripped build environment recover Homebrew OpenJDK automatically when java is missing from the agent shell PATH.
+
+diff --git a/script/setup.sh b/script/setup.sh
+--- a/script/setup.sh
++++ b/script/setup.sh
+@@ -16,6 +16,48 @@
+     fi
+ }
+ 
++bootstrap-homebrew-bash() {
++    if ! /usr/bin/which brew &> /dev/null; then
++        return
++    fi
++
++    bash_prefix="$(brew --prefix bash 2>/dev/null || true)"
++    if /bin/test -z "$bash_prefix"; then
++        return
++    fi
++    if ! /bin/test -x "$bash_prefix/bin/bash"; then
++        return
++    fi
++
++    /bin/cat > ".deps/bin/not-outdated-bash" <<EOF
++#!/bin/bash
++exec '$bash_prefix/bin/bash' "\$@"
++EOF
++}
++
++bootstrap-homebrew-openjdk() {
++    if /usr/bin/which java &> /dev/null; then
++        return
++    fi
++    if ! /usr/bin/which brew &> /dev/null; then
++        return
++    fi
++
++    openjdk_prefix="$(brew --prefix openjdk 2>/dev/null || true)"
++    if /bin/test -z "$openjdk_prefix"; then
++        return
++    fi
++    if ! /bin/test -x "$openjdk_prefix/bin/java"; then
++        return
++    fi
++
++    export PATH="$openjdk_prefix/bin:$PATH"
++    openjdk_home="$openjdk_prefix/libexec/openjdk.jdk/Contents/Home"
++    if /bin/test -d "$openjdk_home"; then
++        export JAVA_HOME="$openjdk_home"
++    fi
++}
++
+ if /bin/test -z "${NUKE_PATH:-}"; then
+     /bin/rm -rf .deps/bin
+     /bin/mkdir -p .deps/bin
+@@ -31,20 +73,29 @@
+     add-optional-dep-to-bin git
+     add-optional-dep-to-bin swift
+     add-optional-dep-to-bin swiftly
++    add-optional-dep-to-bin java
++    add-optional-dep-to-bin javac
+ 
+     export PATH="${PWD}/.deps/bin:/bin:/usr/bin"
+     chmod +x .deps/bin/*
++    bootstrap-homebrew-bash
++    bootstrap-homebrew-openjdk
+     export NUKE_PATH=1
+ fi
+ 
+ swift() {
+     if /usr/bin/which swiftly &> /dev/null; then
+-        swiftly run swift "$@"
++        if swiftly run swift --version >/dev/null 2>&1; then
++            swiftly run swift "$@"
++            return
++        fi
++        echo "warning: swiftly is installed but can't run the pinned toolchain. Fallback to plain swift. Swift compilation might not be reproducible" > /dev/stderr
+     else
+         echo "warning: swiftly is not installed. Fallback to plain swift. Swift compilation might not be reproducible" > /dev/stderr
+-        /usr/bin/env swift --version
+-        /usr/bin/env swift "$@"
+     fi
++
++    /usr/bin/xcrun swift --version
++    /usr/bin/xcrun swift "$@"
+ }
+ 
+ xcodebuild-pretty() {

@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "tap-readme",
+      "mode": "copy",
+      "source": "docs/public/homebrew-hyprspace-README.md",
+      "local_dest": "../homebrew-hyprspace/README.md",
+      "expected_local_parent": "../homebrew-hyprspace",
+      "public_url": "https://raw.githubusercontent.com/{tap_repo}/main/README.md"
+    },
+    {
+      "id": "releases-readme",
+      "mode": "copy",
+      "source": "docs/public/hyprspace-releases-README.md",
+      "local_dest": "../hyprspace-releases/README.md",
+      "expected_local_parent": "../hyprspace-releases",
+      "public_url": "https://raw.githubusercontent.com/{releases_repo}/main/README.md",
+      "zip_dest": "Hyprspace-v{version}/README.md",
+      "expected_zip_parent": "Hyprspace-v{version}"
+    },
+    {
+      "id": "releases-legal",
+      "mode": "copy",
+      "source": "docs/public/hyprspace-releases-LEGAL.md",
+      "local_dest": "../hyprspace-releases/LEGAL.md",
+      "expected_local_parent": "../hyprspace-releases",
+      "public_url": "https://raw.githubusercontent.com/{releases_repo}/main/LEGAL.md"
+    },
+    {
+      "id": "releases-license",
+      "mode": "copy",
+      "source": "LICENSE",
+      "local_dest": "../hyprspace-releases/LICENSE",
+      "expected_local_parent": "../hyprspace-releases",
+      "public_url": "https://raw.githubusercontent.com/{releases_repo}/main/LICENSE"
+    },
+    {
+      "id": "release-notes",
+      "mode": "render",
+      "source": "docs/public/release-notes.md",
+      "local_dest": "AeroSpace/.release/release-notes.md",
+      "expected_local_parent": "AeroSpace/.release"
+    },
+    {
+      "id": "zip-docs-legal",
+      "mode": "copy",
+      "source": "docs/legal.md",
+      "zip_dest": "Hyprspace-v{version}/docs/legal.md",
+      "expected_zip_parent": "Hyprspace-v{version}/docs"
+    },
+    {
+      "id": "zip-legal-readme",
+      "mode": "copy",
+      "source": "docs/public/bundled-legal-README.md",
+      "zip_dest": "Hyprspace-v{version}/legal/README.md",
+      "expected_zip_parent": "Hyprspace-v{version}/legal"
+    },
+    {
+      "id": "zip-legal-license",
+      "mode": "copy",
+      "source": "LICENSE",
+      "zip_dest": "Hyprspace-v{version}/legal/LICENSE.txt",
+      "expected_zip_parent": "Hyprspace-v{version}/legal"
+    }
+  ],
+  "assertions": [
+    {
+      "id": "tap-cask-homepage",
+      "local_path": "AeroSpace/.release/hyprspace.rb",
+      "public_url": "https://raw.githubusercontent.com/{tap_repo}/main/Casks/hyprspace.rb",
+      "contains": "homepage \"https://hyprspace.net/\""
+    },
+    {
+      "id": "tap-cask-verified-releases-repo",
+      "local_path": "AeroSpace/.release/hyprspace.rb",
+      "public_url": "https://raw.githubusercontent.com/{tap_repo}/main/Casks/hyprspace.rb",
+      "contains": "verified: \"github.com/PeachlifeAB/hyprspace-releases/\""
+    },
+    {
+      "id": "tap-cask-no-private-homepage",
+      "local_path": "AeroSpace/.release/hyprspace.rb",
+      "public_url": "https://raw.githubusercontent.com/{tap_repo}/main/Casks/hyprspace.rb",
+      "not_contains": "homepage \"https://github.com/PeachlifeAB/hyprspace-core\""
+    },
+    {
+      "id": "tap-cask-no-releases-homepage",
+      "local_path": "AeroSpace/.release/hyprspace.rb",
+      "public_url": "https://raw.githubusercontent.com/{tap_repo}/main/Casks/hyprspace.rb",
+      "not_contains": "homepage \"https://github.com/PeachlifeAB/hyprspace-releases\""
+    }
+  ]
+}

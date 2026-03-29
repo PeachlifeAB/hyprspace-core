@@ -1,0 +1,287 @@
+# Summary: Implements a Hyprland-style dwindle insertion strategy based on the most recently used tiled window.
+
+diff --git a/Sources/AppBundle/tree/MacWindow.swift b/Sources/AppBundle/tree/MacWindow.swift
+index ac65852b..0c63c251 100644
+--- a/Sources/AppBundle/tree/MacWindow.swift
++++ b/Sources/AppBundle/tree/MacWindow.swift
+@@ -225,6 +225,32 @@ private func unbindAndGetBindingDataForNewTilingWindow(_ workspace: Workspace, w
+     window?.unbindFromParent() // It's important to unbind to get correct data from below
+     let mruWindow = workspace.mostRecentWindowRecursive
+     if let mruWindow, let tilingParent = mruWindow.parent as? TilingContainer {
++        if tilingParent.children.count >= 2 {
++            let newOrientation: Orientation
++            if let rect = mruWindow.lastAppliedLayoutVirtualRect {
++                newOrientation = rect.width > rect.height ? .h : .v
++            } else {
++                newOrientation = tilingParent.orientation.opposite
++            }
++            let weight = mruWindow.getWeight(tilingParent.orientation)
++            let index = mruWindow.ownIndex.orDie()
++
++            let newContainer = TilingContainer(
++                parent: tilingParent,
++                adaptiveWeight: weight,
++                newOrientation,
++                .tiles,
++                index: index
++            )
++
++            mruWindow.bind(to: newContainer, adaptiveWeight: WEIGHT_AUTO, index: 0)
++
++            return BindingData(
++                parent: newContainer,
++                adaptiveWeight: WEIGHT_AUTO,
++                index: 1
++            )
++        }
+         return BindingData(
+             parent: tilingParent,
+             adaptiveWeight: WEIGHT_AUTO,
+diff --git a/Sources/AppBundle/tree/normalizeContainers.swift b/Sources/AppBundle/tree/normalizeContainers.swift
+index 931b028f..20b6fdac 100644
+--- a/Sources/AppBundle/tree/normalizeContainers.swift
++++ b/Sources/AppBundle/tree/normalizeContainers.swift
+@@ -1,3 +1,5 @@
++import Common
++
+ extension Workspace {
+     @MainActor func normalizeContainers() {
+         rootTilingContainer.unbindEmptyAndAutoFlatten() // Beware! rootTilingContainer may change after this line of code
+@@ -24,8 +26,18 @@ extension TilingContainer {
+             for child in children {
+                 (child as? TilingContainer)?.unbindEmptyAndAutoFlatten()
+             }
+-            if children.isEmpty && !isRootContainer {
+-                unbindFromParent()
++            if children.isEmpty {
++                if isRootContainer {
++                    let defaultOrientation: Orientation = switch config.defaultRootContainerOrientation {
++                        case .horizontal: .h
++                        case .vertical: .v
++                        case .auto: nodeWorkspace?.workspaceMonitor.then { $0.width >= $0.height } ?? true ? .h : .v
++                    }
++                    self.changeOrientation(defaultOrientation)
++                    self.layout = config.defaultRootContainerLayout
++                } else {
++                    unbindFromParent()
++                }
+             }
+         }
+     }
+diff --git a/Sources/AppBundleTests/tree/DwindleBugTest.swift b/Sources/AppBundleTests/tree/DwindleBugTest.swift
+new file mode 100644
+index 00000000..ea63dad6
+--- /dev/null
++++ b/Sources/AppBundleTests/tree/DwindleBugTest.swift
+@@ -0,0 +1,68 @@
++@testable import AppBundle
++import XCTest
++
++@MainActor
++final class DwindleBugTest: XCTestCase {
++    override func setUp() async throws { setUpWorkspacesForTests() }
++
++    func testDwindleLayoutStateAfterDeletion() async throws {
++        config.enableNormalizationFlattenContainers = true
++        let workspace = Workspace.get(byName: name)
++        
++        XCTAssertEqual(workspace.rootTilingContainer.orientation, .h)
++
++        // 1. Insert two windows
++        let w1 = TestWindow.new(id: 1, parent: macosPopupWindowsContainer)
++        try await w1.relayoutWindow(on: workspace, forceTile: true)
++        w1.markAsMostRecentChild()
++        
++        let w2 = TestWindow.new(id: 2, parent: macosPopupWindowsContainer)
++        try await w2.relayoutWindow(on: workspace, forceTile: true)
++        w2.markAsMostRecentChild()
++        
++        // Root should be H, 2 windows
++        XCTAssertEqual(workspace.rootTilingContainer.orientation, .h)
++        XCTAssertEqual(workspace.rootTilingContainer.children.count, 2)
++        
++        // 2. Insert 3rd window (splits W2, creating V container)
++        let w3 = TestWindow.new(id: 3, parent: macosPopupWindowsContainer)
++        try await w3.relayoutWindow(on: workspace, forceTile: true)
++        w3.markAsMostRecentChild()
++        
++        XCTAssertEqual(workspace.rootTilingContainer.orientation, .h)
++        XCTAssertEqual(workspace.rootTilingContainer.children.count, 2)
++        let vContainer = workspace.rootTilingContainer.children[1] as! TilingContainer
++        XCTAssertEqual(vContainer.orientation, .v)
++        
++        // 3. Delete W1
++        w1.unbindFromParent()
++        workspace.normalizeContainers()
++        
++        // Now what is the root container? It should be the V container since H container had only 1 child (V container).
++        // Wait, yes, the H container (root) gets flattened! So the new root is V container!
++        XCTAssertEqual(workspace.rootTilingContainer.orientation, .v)
++        
++        // 4. Delete all
++        w2.unbindFromParent()
++        w3.unbindFromParent()
++        workspace.normalizeContainers()
++        
++        // What is root orientation now? It should reset to H because it's empty!
++        XCTAssertEqual(workspace.rootTilingContainer.orientation, .h)
++        
++        // 5. Insert new window
++        let w4 = TestWindow.new(id: 4, parent: macosPopupWindowsContainer)
++        try await w4.relayoutWindow(on: workspace, forceTile: true)
++        w4.markAsMostRecentChild()
++        
++        // 6. Insert another window
++        let w5 = TestWindow.new(id: 5, parent: macosPopupWindowsContainer)
++        try await w5.relayoutWindow(on: workspace, forceTile: true)
++        w5.markAsMostRecentChild()
++        
++        // Will they be V or H?
++        // Since root is V, they will be V!
++        // But the user expects them to be H because it's a new dwindle tree.
++        XCTAssertEqual(workspace.rootTilingContainer.orientation, .h, "First split should ALWAYS be horizontal")
++    }
++}
+diff --git a/Sources/AppBundleTests/tree/DwindleLayoutTest.swift b/Sources/AppBundleTests/tree/DwindleLayoutTest.swift
+new file mode 100644
+index 00000000..aa97aa27
+--- /dev/null
++++ b/Sources/AppBundleTests/tree/DwindleLayoutTest.swift
+@@ -0,0 +1,136 @@
++@testable import AppBundle
++import XCTest
++
++@MainActor
++final class DwindleLayoutTest: XCTestCase {
++    override func setUp() async throws { setUpWorkspacesForTests() }
++
++    func testDwindleLayoutInsertion() async throws {
++        config.enableNormalizationFlattenContainers = true
++        let workspace = Workspace.get(byName: name)
++
++        // 1. Insert first window (w1) into empty workspace
++        let w1 = TestWindow.new(id: 1, parent: workspace.rootTilingContainer)
++        w1.markAsMostRecentChild()
++        
++        // Root (H) -> [W1]
++        XCTAssertEqual(workspace.rootTilingContainer.children.count, 1)
++
++        // 2. Insert w2 (should just append to root since it only has 1 child)
++        let w2 = TestWindow.new(id: 2, parent: macosPopupWindowsContainer)
++        try await w2.relayoutWindow(on: workspace, forceTile: true)
++        w2.markAsMostRecentChild()
++
++        // Root (H) -> [W1, W2]
++        XCTAssertEqual(workspace.rootTilingContainer.children.count, 2)
++        XCTAssertEqual((workspace.rootTilingContainer.children[1] as? TestWindow)?.windowId, 2)
++
++        // 3. Insert w3 (w2 is MRU). Since root has 2 children, w3 should split w2.
++        // w2's parent is root (H). So new container is (V).
++        let w3 = TestWindow.new(id: 3, parent: macosPopupWindowsContainer)
++        try await w3.relayoutWindow(on: workspace, forceTile: true)
++        w3.markAsMostRecentChild()
++
++        // Root (H) -> [W1, V-Container[W2, W3]]
++        XCTAssertEqual(workspace.rootTilingContainer.children.count, 2)
++        let vContainer = workspace.rootTilingContainer.children[1] as! TilingContainer
++        XCTAssertEqual(vContainer.orientation, .v)
++        XCTAssertEqual(vContainer.children.count, 2)
++        XCTAssertEqual((vContainer.children[0] as? TestWindow)?.windowId, 2)
++        XCTAssertEqual((vContainer.children[1] as? TestWindow)?.windowId, 3)
++
++        // 4. Insert w4 (w3 is MRU). w3's parent is V-Container (which has 2 children).
++        // So w4 should split w3 into a new H-Container.
++        let w4 = TestWindow.new(id: 4, parent: macosPopupWindowsContainer)
++        try await w4.relayoutWindow(on: workspace, forceTile: true)
++        w4.markAsMostRecentChild()
++
++        // Root (H) -> [W1, V-Container[W2, H-Container[W3, W4]]]
++        XCTAssertEqual(vContainer.children.count, 2)
++        XCTAssertEqual((vContainer.children[0] as? TestWindow)?.windowId, 2)
++        let hContainer = vContainer.children[1] as! TilingContainer
++        XCTAssertEqual(hContainer.orientation, .h)
++        XCTAssertEqual(hContainer.children.count, 2)
++        XCTAssertEqual((hContainer.children[0] as? TestWindow)?.windowId, 3)
++        XCTAssertEqual((hContainer.children[1] as? TestWindow)?.windowId, 4)
++    }
++
++    func testDwindleLayout6Windows() async throws {
++        config.enableNormalizationFlattenContainers = true
++        let workspace = Workspace.get(byName: name)
++
++        // Add 6 windows sequentially, always focusing the newly added window.
++        for id in 1...6 {
++            let w = TestWindow.new(id: UInt32(id), parent: macosPopupWindowsContainer)
++            try await w.relayoutWindow(on: workspace, forceTile: true)
++            w.markAsMostRecentChild()
++        }
++        
++        assertEquals(
++            workspace.rootTilingContainer.layoutDescription,
++            .h_tiles([
++                .window(1),
++                .v_tiles([
++                    .window(2),
++                    .h_tiles([
++                        .window(3),
++                        .v_tiles([
++                            .window(4),
++                            .h_tiles([
++                                .window(5),
++                                .window(6)
++                            ])
++                        ])
++                    ])
++                ])
++            ])
++        )
++    }
++
++    func testDwindleLayoutDeletion() async throws {
++        config.enableNormalizationFlattenContainers = true
++        let workspace = Workspace.get(byName: name)
++
++        // Setup 4 windows (H -> [W1, V -> [W2, H -> [W3, W4]]])
++        for id in 1...4 {
++            let w = TestWindow.new(id: UInt32(id), parent: macosPopupWindowsContainer)
++            try await w.relayoutWindow(on: workspace, forceTile: true)
++            w.markAsMostRecentChild()
++        }
++
++        // Verify initial setup
++        assertEquals(
++            workspace.rootTilingContainer.layoutDescription,
++            .h_tiles([
++                .window(1),
++                .v_tiles([
++                    .window(2),
++                    .h_tiles([
++                        .window(3),
++                        .window(4)
++                    ])
++                ])
++            ])
++        )
++
++        // Close W3
++        let w3 = workspace.rootTilingContainer.allLeafWindowsRecursive.first(where: { ($0 as? TestWindow)?.windowId == 3 })!
++        w3.unbindFromParent()
++        
++        // This normally happens during event loops, we force it here
++        workspace.normalizeContainers()
++
++        // W4 was in an H-tiles container with W3. With W3 gone, H-tiles has 1 child (W4).
++        // Normalization should flatten H-tiles, leaving W4 inside V-tiles alongside W2.
++        assertEquals(
++            workspace.rootTilingContainer.layoutDescription,
++            .h_tiles([
++                .window(1),
++                .v_tiles([
++                    .window(2),
++                    .window(4)
++                ])
++            ])
++        )
++    }
++}
+

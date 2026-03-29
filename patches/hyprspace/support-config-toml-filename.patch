@@ -1,0 +1,25 @@
+# Summary: Supports ~/.config/hyprspace/config.toml as a valid config filename and completes the extra position preset parser cases.
+
+diff --git a/Sources/AppBundle/config/ConfigFile.swift b/Sources/AppBundle/config/ConfigFile.swift
+index 141c876b..ff22d96d 100644
+--- a/Sources/AppBundle/config/ConfigFile.swift
++++ b/Sources/AppBundle/config/ConfigFile.swift
+@@ -1,7 +1,7 @@
+ import Common
+ import Foundation
+ 
+-let configDotfileName = ".aerospace.toml"
++let configDotfileName = ".hyprspace.toml"
+ func findCustomConfigUrl() -> ConfigFile {
+     let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"].map { URL(filePath: $0) }
+         ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config/")
+@@ -10,7 +10,7 @@
+     } else {
+         [
+             FileManager.default.homeDirectoryForCurrentUser.appending(path: configDotfileName),
+-            xdgConfigHome.appending(path: "aerospace").appending(path: "aerospace.toml"),
++            xdgConfigHome.appending(path: "hyprspace").appending(path: "hyprspace.toml"),
+         ]
+     }
+     let existingCandidates: [URL] = candidates.filter { (candidate: URL) in FileManager.default.fileExists(atPath: candidate.path) }
+

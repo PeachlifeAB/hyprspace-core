@@ -1,0 +1,17 @@
+hyprspace/cli-identity-and-root-hash.patch
+hyprspace/runtime-identity-separation.patch
+hyprspace/install-surface-identity.patch
+hyprspace/local-release-build-proof.patch
+hyprspace/helium-style-versioning.patch
+hyprspace/app-menu-command.patch
+hyprspace/new-window-or-open.patch
+hyprspace/dwindle-layout.patch
+hyprspace/default-config-alt-b.patch
+hyprspace/position-center.patch
+hyprspace/new-window-or-open-position-preset.patch
+hyprspace/build-script-java-and-generated-restore.patch
+hyprspace/position-presets.patch
+hyprspace/support-config-toml-filename.patch
+hyprspace/canonical-config-paths.patch
+hyprspace/opinionated-config-defaults.patch
+hyprspace/accessibility-status.patch

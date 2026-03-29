@@ -1,0 +1,15 @@
+# Summary: fix: remove hyprspace plist in cleanupPlistFromPrevVersions
+
+diff --git a/Sources/AppBundle/config/startAtLogin.swift b/Sources/AppBundle/config/startAtLogin.swift
+index b132dbf3..4f39edec 100644
+--- a/Sources/AppBundle/config/startAtLogin.swift
++++ b/Sources/AppBundle/config/startAtLogin.swift
+@@ -20,6 +20,6 @@ func syncStartAtLogin() {
+ private func cleanupPlistFromPrevVersions() { // todo Drop after a couple of versions
+     let launchAgentsDir = FileManager.default.homeDirectoryForCurrentUser.appending(component: "Library/LaunchAgents/")
+     Result { try FileManager.default.createDirectory(at: launchAgentsDir, withIntermediateDirectories: true) }.getOrDie()
+-    let url: URL = launchAgentsDir.appending(path: "bobko.aerospace.plist")
++    let url: URL = launchAgentsDir.appending(path: "peachlife.hyprspace.plist")
+     try? FileManager.default.removeItem(at: url)
+ }
+
