@@ -5,7 +5,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="$(cd "$script_dir/.." && pwd)"
 source "$root_dir/tests/_common.sh"
 source "$root_dir/product.conf"
-source "$root_dir/script/repo-state-table.sh"
+source "$root_dir/scripts/verify/repo-state-table.sh"
 
 declare -a HYPRSPACE_TEST_CLEANUP_PATHS=()
 public_smoke_on_exit() {

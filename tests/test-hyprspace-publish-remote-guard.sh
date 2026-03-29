@@ -49,7 +49,7 @@ git -C "$releases_repo" -c user.name='Test' -c user.email='test@example.com' com
 
 echo "[step] run publish with missing upstream tracking"
 set +e
-output="$(bash "$source_repo/script/publish-hyprspace-release.sh" 2>&1)"
+output="$(bash "$source_repo/scripts/release/publish-hyprspace-release.sh" 2>&1)"
 status=$?
 set -e
 printf '%s\n' "$output"

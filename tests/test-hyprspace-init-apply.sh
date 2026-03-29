@@ -19,7 +19,7 @@ HYPRSPACE_HOME_OVERRIDE="$test_home" \
     HYPRSPACE_SELECTED_TERMINAL_APP='Terminal.app' \
     HYPRSPACE_SELECTED_MUSIC_APP='Spotify' \
     HYPRSPACE_SELECTED_BROWSER_APP='Helium' \
-    "$root_dir/devutils/apply-init-selections.sh" \
+    "$root_dir/scripts/internal/apply-init-selections.sh" \
     --without-sketchybar \
     --without-borders \
     --without-macos-defaults \

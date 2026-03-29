@@ -87,7 +87,7 @@ echo "[info] test_wallpaper=$test_wallpaper"
 
 if [[ ! -d "$root_dir/AeroSpace/docs/config-examples" ]]; then
     echo "[prereq] patched AeroSpace checkout not found or incomplete at $root_dir/AeroSpace"
-    echo "[prereq] Run ./utils/refresh-workspace.sh first."
+    echo "[prereq] Run ./scripts/patch/refresh-workspace.sh first."
     exit 1
 fi
 
@@ -104,16 +104,15 @@ fi
 cat "$wallpaper_before_json"
 
 echo "[step] creating unique wallpaper probe image"
-cp "$root_dir/gfx/wallpaper-default.jpg" "$test_wallpaper"
+cp "$root_dir/artifacts/gfx/wallpaper-default.jpg" "$test_wallpaper"
 ls -l "$test_wallpaper"
 
 mkdir -p "$fake_install_root/libexec"
 cp -R "$root_dir/libexec/hyprspace-init" "$fake_runtime_dir"
 chmod +x "$fake_runtime_dir/hyprspace-init" "$fake_runtime_dir/apply-init-selections.sh"
-cp -R "$root_dir/devutils" "$fake_install_root/devutils"
-cp -R "$root_dir/configs" "$fake_install_root/configs"
-cp -R "$root_dir/gfx" "$fake_install_root/gfx"
-chmod +x "$fake_install_root/devutils/setup-wallpaper.sh"
+cp -R "$root_dir/scripts" "$fake_install_root/scripts"
+cp -R "$root_dir/artifacts" "$fake_install_root/artifacts"
+chmod +x "$fake_install_root/scripts/internal/setup-wallpaper.sh"
 mkdir -p "$fake_install_root/AeroSpace/docs" "$fake_install_root/bin"
 cp -R "$root_dir/AeroSpace/docs/config-examples" "$fake_install_root/AeroSpace/docs/config-examples"
 ln -s /usr/bin/true "$fake_install_root/libexec/hyprspace-cli"

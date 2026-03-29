@@ -41,23 +41,23 @@ echo "======================================================"
 echo "📦 Applying selected Hyprspace init steps..."
 echo "======================================================"
 
-"$ROOT_DIR/devutils/setup-dependencies.sh"
-"$ROOT_DIR/devutils/setup-hyprspace-config.sh"
+"$ROOT_DIR/scripts/internal/setup-dependencies.sh"
+"$ROOT_DIR/scripts/internal/setup-hyprspace-config.sh"
 
 if [ "$enable_sketchybar" = "1" ]; then
-    "$ROOT_DIR/devutils/setup-sketchybar-config.sh"
+    "$ROOT_DIR/scripts/internal/setup-sketchybar-config.sh"
 else
     echo "-> Sketchybar bootstrap disabled, skipping."
 fi
 
 if [ "$enable_macos_defaults" = "1" ]; then
-    "$ROOT_DIR/devutils/setup-macos-defaults.sh"
+    "$ROOT_DIR/scripts/internal/setup-macos-defaults.sh"
 else
     echo "-> macOS defaults disabled, skipping."
 fi
 
 if [ "$enable_wallpaper" = "1" ]; then
-    "$ROOT_DIR/devutils/setup-wallpaper.sh"
+    "$ROOT_DIR/scripts/internal/setup-wallpaper.sh"
 else
     echo "-> Wallpaper setup disabled, skipping."
 fi

@@ -16,7 +16,7 @@ log_file="$log_dir/${timestamp}-hyprspace-init-interactive-smoke.log"
 
 if [[ ! -d "$root_dir/AeroSpace/docs/config-examples" ]]; then
     echo "[prereq] patched AeroSpace checkout not found or incomplete at $root_dir/AeroSpace"
-    echo "[prereq] Run ./utils/refresh-workspace.sh first."
+    echo "[prereq] Run ./scripts/patch/refresh-workspace.sh first."
     exit 1
 fi
 
@@ -25,10 +25,9 @@ register_cleanup_path "$fake_install_root" "$test_home"
 trap cleanup_paths_on_exit EXIT
 mkdir -p "$fake_install_root/libexec"
 cp -R "$runtime_src" "$fake_runtime_dir"
-cp -R "$root_dir/devutils" "$fake_install_root/devutils"
-cp -R "$root_dir/configs" "$fake_install_root/configs"
-cp -R "$root_dir/gfx" "$fake_install_root/gfx"
-chmod +x "$fake_install_root/devutils/setup-wallpaper.sh"
+cp -R "$root_dir/scripts" "$fake_install_root/scripts"
+cp -R "$root_dir/artifacts" "$fake_install_root/artifacts"
+chmod +x "$fake_install_root/scripts/internal/setup-wallpaper.sh"
 mkdir -p "$fake_install_root/AeroSpace/docs"
 cp -R "$root_dir/AeroSpace/docs/config-examples" "$fake_install_root/AeroSpace/docs/config-examples"
 

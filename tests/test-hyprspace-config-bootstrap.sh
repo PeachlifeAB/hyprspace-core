@@ -11,10 +11,10 @@ register_cleanup_path "$test_home"
 trap cleanup_paths_on_exit EXIT
 
 echo "[step] injecting default Hyprspace config files"
-HYPRSPACE_HOME_OVERRIDE="$test_home" "$root_dir/devutils/setup-hyprspace-config.sh"
+HYPRSPACE_HOME_OVERRIDE="$test_home" "$root_dir/scripts/internal/setup-hyprspace-config.sh"
 
 echo "[step] injecting default Sketchybar config files"
-HYPRSPACE_HOME_OVERRIDE="$test_home" HYPRSPACE_SKIP_SKETCHYBAR_SERVICE=1 "$root_dir/devutils/setup-sketchybar-config.sh"
+HYPRSPACE_HOME_OVERRIDE="$test_home" HYPRSPACE_SKIP_SKETCHYBAR_SERVICE=1 "$root_dir/scripts/internal/setup-sketchybar-config.sh"
 
 echo "[step] asserting injected files"
 test -f "$test_home/.config/hyprspace/config.toml"
@@ -29,12 +29,12 @@ test -x "$test_home/.config/sketchybar/plugins/hyprspace_workspace.sh"
 
 echo "[step] preserving an existing Hyprspace active config"
 printf '%s\n' '# preserve me' >"$test_home/.config/hyprspace/config.toml"
-HYPRSPACE_HOME_OVERRIDE="$test_home" "$root_dir/devutils/setup-hyprspace-config.sh"
+HYPRSPACE_HOME_OVERRIDE="$test_home" "$root_dir/scripts/internal/setup-hyprspace-config.sh"
 grep -q '^# preserve me$' "$test_home/.config/hyprspace/config.toml"
 
 echo "[step] preserving an existing Sketchybar config"
 printf '%s\n' '# preserve sketchybar' >"$test_home/.config/sketchybar/sketchybarrc"
-HYPRSPACE_HOME_OVERRIDE="$test_home" HYPRSPACE_SKIP_SKETCHYBAR_SERVICE=1 "$root_dir/devutils/setup-sketchybar-config.sh"
+HYPRSPACE_HOME_OVERRIDE="$test_home" HYPRSPACE_SKIP_SKETCHYBAR_SERVICE=1 "$root_dir/scripts/internal/setup-sketchybar-config.sh"
 grep -q '^# preserve sketchybar$' "$test_home/.config/sketchybar/sketchybarrc"
 
 echo "[step] repairing a preserved but broken Sketchybar config"
@@ -68,7 +68,7 @@ focused="$("$HYPRSPACE_BIN" list-workspaces --focused 2>/dev/null)"
 ##### Auto-Hide Workaround (macOS Menu Bar) #####
 EOF
 rm -f "$test_home/.config/sketchybar/plugins/hyprspace_workspace.sh"
-HYPRSPACE_HOME_OVERRIDE="$test_home" HYPRSPACE_SKIP_SKETCHYBAR_SERVICE=1 "$root_dir/devutils/setup-sketchybar-config.sh"
+HYPRSPACE_HOME_OVERRIDE="$test_home" HYPRSPACE_SKIP_SKETCHYBAR_SERVICE=1 "$root_dir/scripts/internal/setup-sketchybar-config.sh"
 grep -q '^# preserve sketchybar$' "$test_home/.config/sketchybar/sketchybarrc"
 test -x "$test_home/.config/sketchybar/plugins/hyprspace_workspace.sh"
 grep -q 'sketchybar --add event hyprspace_workspace_change' "$test_home/.config/sketchybar/sketchybarrc"

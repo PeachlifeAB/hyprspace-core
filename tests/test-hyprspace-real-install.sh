@@ -37,7 +37,7 @@ echo "[info] log_file=$log_file"
 
 if [[ ! -d "$checkout_dir" ]]; then
     echo "[prereq] patched AeroSpace checkout not found at $checkout_dir"
-    echo "[prereq] Run ./utils/refresh-workspace.sh first."
+    echo "[prereq] Run ./scripts/patch/refresh-workspace.sh first."
     exit 1
 fi
 
@@ -46,7 +46,7 @@ require_no_preexisting_window_manager
 cd "$checkout_dir"
 
 echo "[step] running real install-local.sh"
-"$root_dir/devutils/install-local.sh"
+"$root_dir/scripts/install/install-local.sh"
 
 echo "[step] checking CLI on PATH"
 export PATH="$HOME/.local/bin:$PATH"

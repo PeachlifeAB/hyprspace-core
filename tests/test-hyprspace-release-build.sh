@@ -46,7 +46,7 @@ echo "[info] build_version=$build_version"
 
 if [[ ! -d "$checkout_dir" ]]; then
     echo "[prereq] patched AeroSpace checkout not found at $checkout_dir"
-    echo "[prereq] Run ./utils/refresh-workspace.sh first."
+    echo "[prereq] Run ./scripts/patch/refresh-workspace.sh first."
     exit 1
 fi
 
@@ -60,8 +60,8 @@ test -d .release/Hyprspace.app
 test -f .release/hyprspace
 test -x .release/libexec/hyprspace-init/hyprspace-init
 test -x .release/Hyprspace-v${build_version}/libexec/hyprspace-init/hyprspace-init
-test -f .release/gfx/wallpaper-default.jpg
-test -f .release/Hyprspace-v${build_version}/gfx/wallpaper-default.jpg
+test -f .release/artifacts/gfx/wallpaper-default.jpg
+test -f .release/Hyprspace-v${build_version}/artifacts/gfx/wallpaper-default.jpg
 test -f .release/Hyprspace.app/Contents/Resources/Assets.car
 test -f .release/Hyprspace.app/Contents/Resources/AppIcon.icns
 test -f .release/Hyprspace-v${build_version}.zip
@@ -78,14 +78,14 @@ if grep -q 'AppIcon.appiconset/(null)\[2d\]\[icon.png\]' .release/xcodebuild.log
 fi
 
 echo "[step] validating packaged public docs and license surfaces"
-python3 "$root_dir/script/validate-public-release-surface.py" --phase zip --zip "$checkout_dir/.release/Hyprspace-v${build_version}.zip"
+python3 "$root_dir/scripts/internal/validate-public-release-surface.py" --phase zip --zip "$checkout_dir/.release/Hyprspace-v${build_version}.zip"
 
 echo "[step] checking built AppIcon.icns content"
 /usr/bin/xcrun iconutil -c iconset .release/Hyprspace.app/Contents/Resources/AppIcon.icns -o "$iconset_dir"
 for pair in \
-    "icon_16x16@2x.png:gfx/icons/IconComposer-iOS-Default-16x16@2x.png" \
-    "icon_128x128.png:gfx/icons/IconComposer-iOS-Default-128x128@1x.png" \
-    "icon_128x128@2x.png:gfx/icons/IconComposer-iOS-Default-128x128@2x.png"; do
+    "icon_16x16@2x.png:artifacts/gfx/icons/IconComposer-iOS-Default-16x16@2x.png" \
+    "icon_128x128.png:artifacts/gfx/icons/IconComposer-iOS-Default-128x128@1x.png" \
+    "icon_128x128@2x.png:artifacts/gfx/icons/IconComposer-iOS-Default-128x128@2x.png"; do
     built_name="${pair%%:*}"
     source_path="$root_dir/${pair#*:}"
     built_path="$iconset_dir/$built_name"

@@ -17,7 +17,7 @@ echo "[info] log_file=$log_file"
 
 if [[ ! -d "$checkout_dir" ]]; then
     echo "[prereq] patched AeroSpace checkout not found at $checkout_dir"
-    echo "[prereq] Run ./utils/refresh-workspace.sh first."
+    echo "[prereq] Run ./scripts/patch/refresh-workspace.sh first."
     exit 1
 fi
 
@@ -36,9 +36,9 @@ grep -q 'product hyprspace' build-release.sh
 grep -q 'Hyprspace.app' build-release.sh
 grep -q 'hyprspace' build-release.sh
 grep -q 'libexec/hyprspace-init' build-release.sh
-grep -q 'cp -r "$root_dir/gfx" .release/gfx' build-release.sh
-grep -q 'docs/public/hyprspace-releases-README.md' build-release.sh
-grep -q 'docs/public/bundled-legal-README.md' build-release.sh
+grep -q 'cp -r "$root_dir/artifacts" .release/artifacts' build-release.sh
+grep -q 'artifacts/docs/hyprspace-releases-README.md' build-release.sh
+grep -q 'artifacts/docs/bundled-legal-README.md' build-release.sh
 grep -q '\$root_dir/LICENSE' build-release.sh
 grep -q 'homepage "https://hyprspace.net/"' script/build-brew-cask.sh
 grep -q 'url "\$zip_uri",' script/build-brew-cask.sh
@@ -47,13 +47,13 @@ grep -q 'depends_on macos: ">= :sequoia"' script/build-brew-cask.sh
 grep -q "Run 'hyprspace init' to start the setup wizard\." script/build-brew-cask.sh
 grep -q 'Hyprspace\.app was installed to /Applications\.' script/build-brew-cask.sh
 grep -q 'libexec/hyprspace-init' install-from-sources.sh
-grep -q '.release/gfx' install-from-sources.sh
-grep -q 'libexec/hyprspace-init' "$root_dir/devutils/install-local.sh"
-grep -q 'Hyprspace' "$root_dir/devutils/install-local.sh"
-grep -q 'setup-dependencies.sh' "$root_dir/devutils/install-local.sh"
-grep -q 'setup-hyprspace-config.sh' "$root_dir/devutils/install-local.sh"
-grep -q 'setup-sketchybar-config.sh' "$root_dir/devutils/install-local.sh"
-grep -q 'setup-macos-defaults.sh' "$root_dir/devutils/install-local.sh"
-grep -q 'setup-wallpaper.sh' "$root_dir/devutils/install-local.sh"
+grep -q '.release/artifacts' install-from-sources.sh
+grep -q 'libexec/hyprspace-init' "$root_dir/scripts/install/install-local.sh"
+grep -q 'Hyprspace' "$root_dir/scripts/install/install-local.sh"
+grep -q 'setup-dependencies.sh' "$root_dir/scripts/install/install-local.sh"
+grep -q 'setup-hyprspace-config.sh' "$root_dir/scripts/install/install-local.sh"
+grep -q 'setup-sketchybar-config.sh' "$root_dir/scripts/install/install-local.sh"
+grep -q 'setup-macos-defaults.sh' "$root_dir/scripts/install/install-local.sh"
+grep -q 'setup-wallpaper.sh' "$root_dir/scripts/install/install-local.sh"
 
 echo "[ok] hyprspace install surface test passed"

@@ -24,17 +24,17 @@ brew tap PeachlifeAB/hyprspace
 brew install --cask hyprspace
 ```
 
-For legal information, third-party notices, and signing disclosure, see [`docs/legal.md`](docs/legal.md).
+For legal information, third-party notices, and signing disclosure, see [`artifacts/docs/legal.md`](artifacts/docs/legal.md).
 
 ## Configuration
 
 Hyprspace uses:
 
 - **active config:** `~/.config/hyprspace/config.toml`
-- **reference config:** `~/.config/hyprspace/config.default.toml`
+- **reference config:** `~/.config/hyprspace/docs/default-config.toml`
 
 `config.toml` is the real config Hyprspace loads.
-`config.default.toml` is a reference file you can copy settings from.
+`docs/default-config.toml` is a reference file you can copy settings from.
 
 A minimal first-run workflow is:
 
@@ -43,7 +43,7 @@ mkdir -p ~/.config/hyprspace
 open -a TextEdit ~/.config/hyprspace/config.toml
 ```
 
-For the user-facing config guide, see [`docs/config.md`](docs/config.md).
+For the user-facing config guide, see [`artifacts/docs/config.md`](artifacts/docs/config.md).
 
 ## Product behavior
 
@@ -58,16 +58,12 @@ Hyprspace also adds named floating placement presets so common utility windows c
 ## Documentation
 
 ### For users
-- Config guide: [`docs/config.md`](docs/config.md)
-- Legal and release disclosure: [`docs/legal.md`](docs/legal.md)
+- Config guide: [`artifacts/docs/config.md`](artifacts/docs/config.md)
+- Legal and release disclosure: [`artifacts/docs/legal.md`](artifacts/docs/legal.md)
 
 ### For contributors and maintainers
-- Install from source: [`docs/installing-from-source.md`](docs/installing-from-source.md)
-- Development workflow: [`docs/dev/workflow.md`](docs/dev/workflow.md)
-- Patch stack index: [`docs/dev/patches.md`](docs/dev/patches.md)
-- Utils and tests: [`docs/dev/utils.md`](docs/dev/utils.md)
-- Config resolution internals: [`docs/dev/config.md`](docs/dev/config.md)
-- Release runbook: [`docs/maintainer-release.md`](docs/maintainer-release.md)
+- Development guide: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)
+- Patch stack index: [`docs/patches.md`](docs/patches.md)
 
 ## Upstream AeroSpace resources
 

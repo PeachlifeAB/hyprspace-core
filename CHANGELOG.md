@@ -19,6 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Public release artifacts are published in `PeachlifeAB/hyprspace-releases` while the source repository remains private.
 
 ### Notes
-- Hyprspace releases are currently not code-signed or notarized by Apple. See `docs/legal.md` and the public release surfaces for disclosure details.
+- Hyprspace releases are currently not code-signed or notarized by Apple. See `artifacts/docs/legal.md` and the public release surfaces for disclosure details.
 
 [0.1.0]: https://github.com/PeachlifeAB/hyprspace-core/releases/tag/v0.1.0

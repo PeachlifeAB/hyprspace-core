@@ -5,7 +5,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="$(cd "$script_dir/.." && pwd)"
 checkout_dir="$root_dir/AeroSpace"
 source "$root_dir/tests/_common.sh"
-source "$root_dir/script/repo-state-table.sh"
+source "$root_dir/scripts/verify/repo-state-table.sh"
 
 declare -a HYPRSPACE_TEST_CLEANUP_PATHS=()
 require_opt_in RUN_INTEGRATION_TESTS "test-hyprspace-brew-cask.sh is in the integration tier."
@@ -51,7 +51,7 @@ print_repo_state_table brew-cask-preflight \
 
 if [[ ! -d "$checkout_dir" ]]; then
     echo "[prereq] patched AeroSpace checkout not found at $checkout_dir"
-    echo "[prereq] Run ./utils/refresh-workspace.sh first."
+    echo "[prereq] Run ./scripts/patch/refresh-workspace.sh first."
     exit 1
 fi
 

@@ -152,7 +152,7 @@ diff --git a/build-release.sh b/build-release.sh
 +}
 +
 +sync_app_icon_assets() {
-+    local icon_source_dir="$root_dir/gfx/icons"
++    local icon_source_dir="$root_dir/artifacts/gfx/icons"
 +
 +    rm -f "$app_icon_set_dir"/*
 +
@@ -348,10 +348,8 @@ diff --git a/build-release.sh b/build-release.sh
 +cp -r "$root_dir/libexec/hyprspace-init" .release/libexec/hyprspace-init
 +cp -r "$root_dir/libexec/hyprspace-update" .release/libexec/hyprspace-update
 +chmod +x .release/libexec/hyprspace-init/hyprspace-init .release/libexec/hyprspace-init/apply-init-selections.sh .release/libexec/hyprspace-update/hyprspace-update
-+cp -r "$root_dir/devutils" .release/devutils
-+cp -r "$root_dir/docs" .release/docs
-+cp -r "$root_dir/configs" .release/configs
-+cp -r "$root_dir/gfx" .release/gfx
++cp -r "$root_dir/scripts" .release/scripts
++cp -r "$root_dir/artifacts" .release/artifacts
 +mkdir -p .release/AeroSpace/docs
 +cp -r ./docs/config-examples .release/AeroSpace/docs/config-examples
  
@@ -445,9 +443,9 @@ diff --git a/build-release.sh b/build-release.sh
 +    mkdir -p ".release/Hyprspace-v$build_version/manpage" && cp .man/*.1 ".release/Hyprspace-v$build_version/manpage"
 +fi
 +mkdir -p ".release/Hyprspace-v$build_version"
-+cp "$root_dir/docs/public/hyprspace-releases-README.md" ".release/Hyprspace-v$build_version/README.md"
++cp "$root_dir/artifacts/docs/hyprspace-releases-README.md" ".release/Hyprspace-v$build_version/README.md"
 +cp -r ./legal ".release/Hyprspace-v$build_version/legal"
-+cp "$root_dir/docs/public/bundled-legal-README.md" ".release/Hyprspace-v$build_version/legal/README.md"
++cp "$root_dir/artifacts/docs/bundled-legal-README.md" ".release/Hyprspace-v$build_version/legal/README.md"
 +cp "$root_dir/LICENSE" ".release/Hyprspace-v$build_version/legal/LICENSE.txt"
 +cp -r .shell-completion ".release/Hyprspace-v$build_version/shell-completion"
 +mkdir -p ".release/Hyprspace-v$build_version/libexec"
@@ -462,10 +460,8 @@ diff --git a/build-release.sh b/build-release.sh
 +    echo "packaged hyprspace-init lost execute permission" >&2
 +    exit 1
 +fi
-+cp -r "$root_dir/devutils" ".release/Hyprspace-v$build_version/devutils"
-+cp -r "$root_dir/docs" ".release/Hyprspace-v$build_version/docs"
-+cp -r "$root_dir/configs" ".release/Hyprspace-v$build_version/configs"
-+cp -r "$root_dir/gfx" ".release/Hyprspace-v$build_version/gfx"
++cp -r "$root_dir/scripts" ".release/Hyprspace-v$build_version/scripts"
++cp -r "$root_dir/artifacts" ".release/Hyprspace-v$build_version/artifacts"
 +mkdir -p ".release/Hyprspace-v$build_version/AeroSpace/docs"
 +cp -r ./docs/config-examples ".release/Hyprspace-v$build_version/AeroSpace/docs/config-examples"
  cd .release
@@ -708,7 +704,7 @@ diff --git a/install-from-sources.sh b/install-from-sources.sh
 +    cp ./.release/hyprspace "$local_prefix/bin/hyprspace"
 +    cp ./.release/libexec/hyprspace-cli "$local_prefix/libexec/hyprspace-cli"
 +    cp -R ./.release/libexec/hyprspace-init "$local_prefix/libexec/hyprspace-init"
-+    cp -R ./.release/gfx "$local_prefix/gfx"
++    cp -R ./.release/artifacts "$local_prefix/artifacts"
 +    mkdir -p "$local_prefix/share/zsh/site-functions" "$local_prefix/share/fish/vendor_completions.d" "$local_prefix/etc/bash_completion.d"
 +    cp ./.release/Hyprspace-v"$(plutil -extract CFBundleShortVersionString raw ./.release/Hyprspace.app/Contents/Info.plist)"/shell-completion/zsh/_hyprspace "$local_prefix/share/zsh/site-functions/_hyprspace"
 +    cp ./.release/Hyprspace-v"$(plutil -extract CFBundleShortVersionString raw ./.release/Hyprspace.app/Contents/Info.plist)"/shell-completion/fish/hyprspace.fish "$local_prefix/share/fish/vendor_completions.d/hyprspace.fish"
@@ -885,7 +881,7 @@ diff --git a/script/build-brew-cask.sh b/script/build-brew-cask.sh
 -    system "xattr -d com.apple.quarantine #{appdir}/AeroSpace.app"
 +    system "/bin/sh", "-c", "xattr -dr com.apple.quarantine '#{appdir}/Hyprspace.app' 2>/dev/null || true"
 +    system "/bin/sh", "-c", "xattr -dr com.apple.quarantine '#{staged_path}/$zip_root_dir/bin/hyprspace' '#{staged_path}/$zip_root_dir/libexec' 2>/dev/null || true"
-+    system "/bin/sh", "-c", "mkdir -p ~/.config/hyprspace/docs && cp '#{staged_path}/$zip_root_dir/configs/docs/README.md' '#{staged_path}/$zip_root_dir/configs/docs/ACKNOWLEDGMENTS.md' ~/.config/hyprspace/docs/ && cp '#{staged_path}/$zip_root_dir/AeroSpace/docs/config-examples/config.default.toml' ~/.config/hyprspace/docs/default-config.toml 2>/dev/null || true"
++    system "/bin/sh", "-c", "mkdir -p ~/.config/hyprspace/docs && cp '#{staged_path}/$zip_root_dir/artifacts/configs/docs/README.md' '#{staged_path}/$zip_root_dir/artifacts/configs/docs/ACKNOWLEDGMENTS.md' ~/.config/hyprspace/docs/ && cp '#{staged_path}/$zip_root_dir/AeroSpace/docs/config-examples/config.default.toml' ~/.config/hyprspace/docs/default-config.toml 2>/dev/null || true"
    end
  
 -  app "$zip_root_dir/AeroSpace.app"

@@ -24,7 +24,7 @@ echo "[info] log_file=$log_file"
 
 if [[ ! -f "$checkout_dir/docs/config-examples/default-config.toml" ]]; then
     echo "[prereq] patched AeroSpace checkout not found or incomplete at $checkout_dir"
-    echo "[prereq] Run ./utils/refresh-workspace.sh first."
+    echo "[prereq] Run ./scripts/patch/refresh-workspace.sh first."
     exit 1
 fi
 

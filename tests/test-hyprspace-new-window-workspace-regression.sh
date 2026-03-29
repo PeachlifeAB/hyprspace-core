@@ -168,7 +168,7 @@ echo "[info] log_file=$log_file"
 
 if [[ ! -d "$checkout_dir" ]]; then
     echo "[prereq] patched AeroSpace checkout not found at $checkout_dir"
-    echo "[prereq] Run ./utils/refresh-workspace.sh first."
+    echo "[prereq] Run ./scripts/patch/refresh-workspace.sh first."
     exit 1
 fi
 

@@ -5,7 +5,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="$(cd "$script_dir/.." && pwd)"
 checkout_dir="$root_dir/AeroSpace"
 source "$root_dir/tests/_common.sh"
-source "$root_dir/script/repo-state-table.sh"
+source "$root_dir/scripts/verify/repo-state-table.sh"
 
 declare -a HYPRSPACE_TEST_CLEANUP_PATHS=()
 local_install_on_exit() {
@@ -54,7 +54,7 @@ print_home_config_state local-install-interactive-fail-home-pre "$interactive_fa
 
 if [[ ! -d "$checkout_dir" ]]; then
     echo "[prereq] patched AeroSpace checkout not found at $checkout_dir"
-    echo "[prereq] Run ./utils/refresh-workspace.sh first."
+    echo "[prereq] Run ./scripts/patch/refresh-workspace.sh first."
     exit 1
 fi
 
@@ -68,7 +68,7 @@ INSTALL_PREFIX="$install_prefix" \
     HYPRSPACE_SKIP_MACOS_DEFAULTS=1 \
     HYPRSPACE_SKIP_SKETCHYBAR_SERVICE=1 \
     HYPRSPACE_SKIP_WALLPAPER_SETUP=1 \
-    "$root_dir/devutils/install-local.sh"
+    "$root_dir/scripts/install/install-local.sh"
 print_local_install_artifact_state post-install "$install_prefix"
 print_home_config_state local-install-home-post-install "$test_home"
 
@@ -79,8 +79,8 @@ test -x "$install_prefix/libexec/hyprspace-init/hyprspace-init"
 test -f "$install_prefix/libexec/hyprspace-init/apply-init-selections.sh"
 test -f "$install_prefix/libexec/hyprspace-init/step-metadata.sh"
 test -f "$install_prefix/libexec/hyprspace-init/presentation.sh"
-test -f "$install_prefix/devutils/setup-wallpaper.sh"
-test -f "$install_prefix/gfx/wallpaper-default.jpg"
+test -f "$install_prefix/scripts/internal/setup-wallpaper.sh"
+test -f "$install_prefix/artifacts/gfx/wallpaper-default.jpg"
 test -f "$test_home/.config/hyprspace/config.toml"
 test -f "$test_home/.config/hyprspace/docs/default-config.toml"
 test -f "$test_home/.config/hyprspace/docs/README.md"

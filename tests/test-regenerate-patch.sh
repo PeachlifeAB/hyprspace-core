@@ -11,10 +11,10 @@ register_cleanup_path "$fixture_root"
 trap cleanup_paths_on_exit EXIT
 
 fixture_repo="$fixture_root/repo"
-mkdir -p "$fixture_repo/devutils" "$fixture_repo/patches/test" "$fixture_repo/patches" "$fixture_repo/AeroSpace/src"
+mkdir -p "$fixture_repo/scripts/patch" "$fixture_repo/patches/test" "$fixture_repo/patches" "$fixture_repo/AeroSpace/src"
 
-cp "$root_dir/devutils/regenerate-patch.sh" "$fixture_repo/devutils/regenerate-patch.sh"
-chmod +x "$fixture_repo/devutils/regenerate-patch.sh"
+cp "$root_dir/scripts/patch/regenerate-patch.sh" "$fixture_repo/scripts/patch/regenerate-patch.sh"
+chmod +x "$fixture_repo/scripts/patch/regenerate-patch.sh"
 
 cat >"$fixture_repo/aerospace_version.txt" <<'EOF'
 fixture-base
@@ -115,7 +115,7 @@ echo "[step] unrelated edits are rejected by default"
 cat >"$fixture_repo/AeroSpace/src/unrelated.txt" <<'EOF'
 unrelated edit
 EOF
-if REGENERATE_PATCH_ROOT="$fixture_repo" bash "$fixture_repo/devutils/regenerate-patch.sh" 001-alpha --add-file src/new-owned.txt >"$fixture_root/unrelated.out" 2>&1; then
+if REGENERATE_PATCH_ROOT="$fixture_repo" bash "$fixture_repo/scripts/patch/regenerate-patch.sh" 001-alpha --add-file src/new-owned.txt >"$fixture_root/unrelated.out" 2>&1; then
     echo "[fail] regenerate-patch unexpectedly accepted unrelated edits"
     exit 1
 fi
@@ -123,7 +123,7 @@ grep -q "unrelated edits outside the allowed patch surface" "$fixture_root/unrel
 rm "$fixture_repo/AeroSpace/src/unrelated.txt"
 
 echo "[step] ownership collisions are rejected"
-if REGENERATE_PATCH_ROOT="$fixture_repo" bash "$fixture_repo/devutils/regenerate-patch.sh" 001-alpha --add-file src/add-later.txt >"$fixture_root/collision.out" 2>&1; then
+if REGENERATE_PATCH_ROOT="$fixture_repo" bash "$fixture_repo/scripts/patch/regenerate-patch.sh" 001-alpha --add-file src/add-later.txt >"$fixture_root/collision.out" 2>&1; then
     echo "[fail] regenerate-patch unexpectedly accepted an ownership collision"
     exit 1
 fi
@@ -139,11 +139,11 @@ generated completion
 EOF
 
 echo "[step] regenerate patch with explicit added file"
-REGENERATE_PATCH_ROOT="$fixture_repo" bash "$fixture_repo/devutils/regenerate-patch.sh" 001-alpha --add-file src/new-owned.txt >"$fixture_root/regenerate.out" 2>&1
+REGENERATE_PATCH_ROOT="$fixture_repo" bash "$fixture_repo/scripts/patch/regenerate-patch.sh" 001-alpha --add-file src/new-owned.txt >"$fixture_root/regenerate.out" 2>&1
 diff -u "$fixture_root/expected-alpha.patch" "$fixture_repo/patches/test/001-alpha.patch"
 
 echo "[step] unchanged regeneration reports no-op"
-REGENERATE_PATCH_ROOT="$fixture_repo" bash "$fixture_repo/devutils/regenerate-patch.sh" 001-alpha --add-file src/new-owned.txt >"$fixture_root/noop.out" 2>&1
+REGENERATE_PATCH_ROOT="$fixture_repo" bash "$fixture_repo/scripts/patch/regenerate-patch.sh" 001-alpha --add-file src/new-owned.txt >"$fixture_root/noop.out" 2>&1
 grep -q '^patch unchanged$' "$fixture_root/noop.out"
 
 after_head="$(git -C "$fixture_repo/AeroSpace" rev-parse HEAD)"

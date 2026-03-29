@@ -30,7 +30,7 @@ if [[ ! -f "$generated_cask" ]]; then
 fi
 
 echo "[step] syncing and validating local public surface sync"
-python3 "$root_dir/script/validate-public-release-surface.py" --phase local-sync
+python3 "$root_dir/scripts/internal/validate-public-release-surface.py" --phase local-sync
 
 echo "[step] showing tap README legal/release links"
 grep -nE 'hyprspace-releases|LEGAL|LICENSE' "$tap_repo/README.md"

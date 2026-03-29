@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="$(cd "$script_dir/.." && pwd)"
 source "$root_dir/tests/_common.sh"
-source "$root_dir/script/repo-state-table.sh"
+source "$root_dir/scripts/verify/repo-state-table.sh"
 
 declare -a HYPRSPACE_TEST_CLEANUP_PATHS=()
 validate_only_readonly_on_exit() {
@@ -45,7 +45,7 @@ printf '[tap-before]\n%s\n' "${before_tap:-<clean>}"
 printf '[releases-before]\n%s\n' "${before_releases:-<clean>}"
 
 echo "[step] running validate-only"
-bash "$root_dir/script/publish-hyprspace-release.sh" --validate-only
+bash "$root_dir/scripts/release/publish-hyprspace-release.sh" --validate-only
 
 after_source="$(git -C "$root_dir" status --short)"
 after_tap="$(git -C "$tap_repo" status --short)"
