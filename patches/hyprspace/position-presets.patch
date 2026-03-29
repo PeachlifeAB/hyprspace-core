@@ -1,0 +1,267 @@
+# Summary: Expands the floating placement behavior with topLeftCorner, topRightCorner, and bottomPanel presets.
+
+diff --git a/Sources/AppBundle/command/impl/PositionCommand.swift b/Sources/AppBundle/command/impl/PositionCommand.swift
+--- a/Sources/AppBundle/command/impl/PositionCommand.swift
++++ b/Sources/AppBundle/command/impl/PositionCommand.swift
+@@ -20,10 +20,33 @@
+         let monitor = window.nodeMonitor ?? target.workspace.workspaceMonitor
+         let rect = monitor.visibleRect
+ 
+-        let targetWidth = rect.width * 0.75
+-        let targetHeight = rect.height * 0.75
+-        let targetX = rect.minX + (rect.width * 0.125)
+-        let targetY = rect.minY + (rect.height * 0.125)
++        let targetWidth: CGFloat
++        let targetHeight: CGFloat
++        let targetX: CGFloat
++        let targetY: CGFloat
++
++        switch args.targetPlacement.val {
++        case .center:
++            targetWidth = rect.width * 0.75
++            targetHeight = rect.height * 0.75
++            targetX = rect.minX + (rect.width * 0.125)
++            targetY = rect.minY + (rect.height * 0.125)
++        case .topLeftCorner:
++            targetWidth = rect.width * 0.15
++            targetHeight = rect.height * 0.40
++            targetX = rect.minX + (rect.width * 0.05)
++            targetY = rect.minY + (rect.height * 0.05)
++        case .topRightCorner:
++            targetWidth = rect.width * 0.15
++            targetHeight = rect.height * 0.40
++            targetX = rect.maxX - (rect.width * 0.05) - targetWidth
++            targetY = rect.minY + (rect.height * 0.05)
++        case .bottomPanel:
++            targetWidth = rect.width
++            targetHeight = rect.height * 0.30
++            targetX = rect.minX
++            targetY = rect.maxY - targetHeight
++        }
+ 
+         let size = CGSize(width: targetWidth, height: targetHeight)
+         let topLeft = CGPoint(x: targetX, y: targetY)
+
+diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/AppBundleTests/command/PositionCommandTest.swift
+--- a/Sources/AppBundleTests/command/PositionCommandTest.swift
++++ b/Sources/AppBundleTests/command/PositionCommandTest.swift
+@@ -7,6 +7,124 @@
+         var expected = PositionCmdArgs(rawArgs: [])
+         expected.targetPlacement = .initialized(.center)
+         testParseCommandSucc("position center", expected)
++    }
++
++    func testParsePositionTopLeftCorner() {
++        var expected = PositionCmdArgs(rawArgs: [])
++        expected.targetPlacement = .initialized(.topLeftCorner)
++        testParseCommandSucc("position topLeftCorner", expected)
++    }
++
++    func testParsePositionTopRightCorner() {
++        var expected = PositionCmdArgs(rawArgs: [])
++        expected.targetPlacement = .initialized(.topRightCorner)
++        testParseCommandSucc("position topRightCorner", expected)
++    }
++
++    func testParsePositionBottomPanel() {
++        var expected = PositionCmdArgs(rawArgs: [])
++        expected.targetPlacement = .initialized(.bottomPanel)
++        testParseCommandSucc("position bottomPanel", expected)
++    }
++
++    func testParsePositionInvalid() {
++        testParseCommandFail("position invalid", msg: "Invalid placement 'invalid'. Expected 'center', 'topLeftCorner', 'topRightCorner', or 'bottomPanel'")
++    }
++
++    @MainActor
++    func testPositionTopLeftCorner() async throws {
++        setUpWorkspacesForTests()
++
++        let workspace = Workspace.get(byName: "W")
++        let window = TestWindow.new(id: 1, parent: workspace.rootTilingContainer)
++        _ = window.focusWindow()
++
++        var expected = PositionCmdArgs(rawArgs: [])
++        expected.targetPlacement = .initialized(.topLeftCorner)
++        let command = PositionCommand(args: expected)
++
++        _ = try await command.run(.defaultEnv, .emptyStdin)
++
++        XCTAssertTrue(window.isFloating, "Window should be floating after position command")
++
++        let monitorRect = workspace.workspaceMonitor.visibleRect
++        if let rect = try await window.getAxRect() {
++            let expectedWidth = monitorRect.width * 0.15
++            let expectedHeight = monitorRect.height * 0.40
++            let expectedX = monitorRect.minX + (monitorRect.width * 0.05)
++            let expectedY = monitorRect.minY + (monitorRect.height * 0.05)
++
++            XCTAssertEqual(rect.width, expectedWidth, accuracy: 1.0)
++            XCTAssertEqual(rect.height, expectedHeight, accuracy: 1.0)
++            XCTAssertEqual(rect.minX, expectedX, accuracy: 1.0)
++            XCTAssertEqual(rect.minY, expectedY, accuracy: 1.0)
++        } else {
++            XCTFail("Window has no rect")
++        }
++    }
++
++    @MainActor
++    func testPositionTopRightCorner() async throws {
++        setUpWorkspacesForTests()
++
++        let workspace = Workspace.get(byName: "W")
++        let window = TestWindow.new(id: 1, parent: workspace.rootTilingContainer)
++        _ = window.focusWindow()
++
++        var expected = PositionCmdArgs(rawArgs: [])
++        expected.targetPlacement = .initialized(.topRightCorner)
++        let command = PositionCommand(args: expected)
++
++        _ = try await command.run(.defaultEnv, .emptyStdin)
++
++        XCTAssertTrue(window.isFloating, "Window should be floating after position command")
++
++        let monitorRect = workspace.workspaceMonitor.visibleRect
++        if let rect = try await window.getAxRect() {
++            let expectedWidth = monitorRect.width * 0.15
++            let expectedHeight = monitorRect.height * 0.40
++            let expectedX = monitorRect.maxX - (monitorRect.width * 0.05) - expectedWidth
++            let expectedY = monitorRect.minY + (monitorRect.height * 0.05)
++
++            XCTAssertEqual(rect.width, expectedWidth, accuracy: 1.0)
++            XCTAssertEqual(rect.height, expectedHeight, accuracy: 1.0)
++            XCTAssertEqual(rect.minX, expectedX, accuracy: 1.0)
++            XCTAssertEqual(rect.minY, expectedY, accuracy: 1.0)
++        } else {
++            XCTFail("Window has no rect")
++        }
++    }
++
++    @MainActor
++    func testPositionBottomPanel() async throws {
++        setUpWorkspacesForTests()
++
++        let workspace = Workspace.get(byName: "W")
++        let window = TestWindow.new(id: 1, parent: workspace.rootTilingContainer)
++        _ = window.focusWindow()
++
++        var expected = PositionCmdArgs(rawArgs: [])
++        expected.targetPlacement = .initialized(.bottomPanel)
++        let command = PositionCommand(args: expected)
++
++        _ = try await command.run(.defaultEnv, .emptyStdin)
++
++        XCTAssertTrue(window.isFloating, "Window should be floating after position command")
++
++        let monitorRect = workspace.workspaceMonitor.visibleRect
++        if let rect = try await window.getAxRect() {
++            let expectedWidth = monitorRect.width
++            let expectedHeight = monitorRect.height * 0.30
++            let expectedX = monitorRect.minX
++            let expectedY = monitorRect.maxY - expectedHeight
++
++            XCTAssertEqual(rect.width, expectedWidth, accuracy: 1.0)
++            XCTAssertEqual(rect.height, expectedHeight, accuracy: 1.0)
++            XCTAssertEqual(rect.minX, expectedX, accuracy: 1.0)
++            XCTAssertEqual(rect.minY, expectedY, accuracy: 1.0)
++        } else {
++            XCTFail("Window has no rect")
++        }
+     }
+ 
+     @MainActor
+@@ -39,3 +157,25 @@
+         } else {
+             XCTFail("Window has no rect")
+         }
++    }
++
++    @MainActor
++    func testPositionCenterPrefersExplicitWindowIdOverEnvWindowId() async throws {
++        setUpWorkspacesForTests()
++
++        let workspace = Workspace.get(byName: "W")
++        let staleWindow = TestWindow.new(id: 1, parent: workspace.rootTilingContainer)
++        let targetWindow = TestWindow.new(id: 2, parent: workspace.rootTilingContainer)
++        _ = staleWindow.focusWindow()
++
++        var args = PositionCmdArgs(rawArgs: [])
++        args.targetPlacement = .initialized(.center)
++        args = args.copy(\.windowId, 2)
++
++        let command = PositionCommand(args: args)
++        _ = try await command.run(.defaultEnv.copy(\.windowId, 1), .emptyStdin)
++
++        XCTAssertFalse(staleWindow.isFloating, "The stale env window should remain tiled")
++        XCTAssertTrue(targetWindow.isFloating, "The explicitly targeted window should be floated and positioned")
++    }
++}
+
+diff --git a/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift b/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift
+--- a/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift
++++ b/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift
+@@ -9,8 +9,11 @@
+         posArgs: [newArgParser(\.targetPlacement, consumePlacement, mandatoryArgPlaceholder: "<preset>")]
+     )
+ 
+-    public enum Placement: String, Equatable, Sendable {
++    public enum Placement: String, CaseIterable, Equatable, Sendable {
+         case center
++        case topLeftCorner
++        case topRightCorner
++        case bottomPanel
+     }
+ 
+     /*conforms*/ public var windowId: UInt32?
+@@ -22,6 +25,6 @@
+     if let placement = PositionCmdArgs.Placement(rawValue: i.arg) {
+         return .succ(placement, advanceBy: 1)
+     } else {
+-        return .init(.failure("Invalid placement '\(i.arg)'. Expected 'center'"), advanceBy: 1)
++        return .init(.failure("Invalid placement '\(i.arg)'. Expected 'center', 'topLeftCorner', 'topRightCorner', or 'bottomPanel'"), advanceBy: 1)
+     }
+ }
+
+diff --git a/Sources/Common/cmdHelpGenerated.swift b/Sources/Common/cmdHelpGenerated.swift
+--- a/Sources/Common/cmdHelpGenerated.swift
++++ b/Sources/Common/cmdHelpGenerated.swift
+@@ -127,7 +127,7 @@
+     USAGE: reload-config [-h|--help] [--no-gui] [--dry-run]
+     """
+ let position_help_generated = """
+-    USAGE: position [-h|--help] [--window-id <window-id>] (center)
++    USAGE: position [-h|--help] [--window-id <window-id>] (center|topLeftCorner|topRightCorner|bottomPanel)
+     """
+ let resize_help_generated = """
+     USAGE: resize [-h|--help] [--window-id <window-id>] (smart|smart-opposite|width|height) [+|-]<number>
+
+diff --git a/docs/aerospace-position.adoc b/docs/aerospace-position.adoc
+--- a/docs/aerospace-position.adoc
++++ b/docs/aerospace-position.adoc
+@@ -9,7 +9,7 @@
+ == Synopsis
+ [verse]
+ // tag::synopsis[]
+-aerospace position [-h|--help] [--window-id <window-id>] (center)
++aerospace position [-h|--help] [--window-id <window-id>] (center|topLeftCorner|topRightCorner|bottomPanel)
+ 
+ // end::synopsis[]
+ 
+@@ -19,7 +19,16 @@
+ // tag::body[]
+ {manpurpose}
+ 
+-Currently only supports centering floating windows. The `center` argument positions the window in the middle of the screen, taking up 75% of the screen dimensions with equal padding on all sides.
++Supported presets:
++
++- `center`
++- `topLeftCorner`
++- `topRightCorner`
++- `bottomPanel`
++
++The `center` argument positions the window in the middle of the screen, taking up 75% of the screen dimensions with equal padding on all sides.
++`topLeftCorner` and `topRightCorner` place a compact utility window near the top corners.
++`bottomPanel` spans the full width of the monitor along the bottom edge.
+ 
+ If the window is a tiling window, it will first be changed to floating before being positioned.
+ 

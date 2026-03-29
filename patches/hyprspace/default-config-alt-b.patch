@@ -1,0 +1,44 @@
+# Summary: Changes the starter browser shortcut so alt-b opens or creates Safari instead of switching to workspace B.
+
+diff --git a/Sources/AppBundleTests/config/ConfigTest.swift b/Sources/AppBundleTests/config/ConfigTest.swift
+index 5bf8477f..0478fc50 100644
+--- a/Sources/AppBundleTests/config/ConfigTest.swift
++++ b/Sources/AppBundleTests/config/ConfigTest.swift
+@@ -15,8 +15,15 @@ final class ConfigTest: XCTestCase {
+ 
+     func testParseDefaultConfig() {
+         let toml = try! String(contentsOf: projectRoot.appending(component: "docs/config-examples/default-config.toml"))
+-        let (_, errors) = parseConfig(toml)
++        let (config, errors) = parseConfig(toml)
+         assertEquals(errors, [])
++
++        // Assert that the opinionated default shortcut for browser (alt-b) exists
++        let altB = config.modes[mainModeId]?.bindings["alt-b"]
++        assertNotNil(altB)
++        let newWindowCmd = altB?.commands.first as? NewWindowOrOpenCommand
++        assertNotNil(newWindowCmd)
++        assertEquals(newWindowCmd?.args.appName.val, "Safari")
+     }
+ 
+     func testConfigVersionOutOfBounds() {
+diff --git a/docs/config-examples/default-config.toml b/docs/config-examples/default-config.toml
+index ddb6051e..beca3002 100644
+--- a/docs/config-examples/default-config.toml
++++ b/docs/config-examples/default-config.toml
+@@ -107,6 +107,7 @@ on-mode-changed = []
+     #     activate
+     # end tell'
+     # '''
++    alt-b = 'new-window-or-open Safari'
+ 
+     # See: https://nikitabobko.github.io/AeroSpace/commands#layout
+     alt-slash = 'layout tiles horizontal vertical'
+@@ -139,7 +140,6 @@ on-mode-changed = []
+     alt-8 = 'workspace 8'
+     alt-9 = 'workspace 9'
+     alt-a = 'workspace A' # In your config, you can drop workspace bindings that you don't need
+-    alt-b = 'workspace B'
+     alt-c = 'workspace C'
+     alt-d = 'workspace D'
+     alt-e = 'workspace E'
+

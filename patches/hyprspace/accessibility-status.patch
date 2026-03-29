@@ -1,0 +1,122 @@
+# Summary: Add non-prompting --accessibility-status self-checks for app and CLI
+
+diff --git a/Sources/AppBundle/initAppBundle.swift b/Sources/AppBundle/initAppBundle.swift
+index 292ccd47..230ae85b 100644
+--- a/Sources/AppBundle/initAppBundle.swift
++++ b/Sources/AppBundle/initAppBundle.swift
+@@ -59,16 +59,17 @@ struct ServerArgs: Sendable {
+ }
+ 
+ private let serverHelp = """
+-    USAGE: \(CommandLine.arguments.first ?? "Hyprspace.app/Contents/MacOS/Hyprspace") [<options>]
++USAGE: \(CommandLine.arguments.first ?? "Hyprspace.app/Contents/MacOS/Hyprspace") [<options>]
+ 
+-    OPTIONS:
+-      -h, --help              Print help
+-      -v, --version           Print Hyprspace.app version
+-      --config-path <path>    Config path. It will take priority over ~/.config/hyprspace/config.toml,
+-                              ~/.hyprspace.toml, and ~/Library/Application Support/Hyprspace/config.toml
+-      --read-only             Disable window management.
+-                              Useful if you want to use only debug-windows or other query commands.
+-    """
++OPTIONS:
++  -h, --help              Print help
++  -v, --version           Print Hyprspace.app version
++  --accessibility-status  Print machine-readable Accessibility trust status for this process and exit
++  --config-path <path>    Config path. It will take priority over ~/.config/hyprspace/config.toml,
++                          ~/.hyprspace.toml, and ~/Library/Application Support/Hyprspace/config.toml
++  --read-only             Disable window management.
++                          Useful if you want to use only debug-windows or other query commands.
++"""
+ 
+ nonisolated(unsafe) private var _serverArgs = ServerArgs()
+ var serverArgs: ServerArgs { _serverArgs }
+@@ -78,6 +79,9 @@ private func initServerArgs() {
+         print(serverHelp)
+         exit(0)
+     }
++    if args.contains(where: { $0 == "--accessibility-status" }) {
++        printAccessibilityStatusAndExit()
++    }
+     var index = 0
+     while index < args.count {
+         let current = args[index]
+diff --git a/Sources/Cli/_main.swift b/Sources/Cli/_main.swift
+index eecfe754..89a17baa 100644
+--- a/Sources/Cli/_main.swift
++++ b/Sources/Cli/_main.swift
+@@ -4,12 +4,17 @@ import Foundation
+ import Socket
+ 
+ let usage =
+-    """
+-    USAGE: \(CommandLine.arguments.first ?? "aerospace") [-h|--help] [-v|--version] <subcommand> [<args>...]
++"""
++USAGE: \(CommandLine.arguments.first ?? "aerospace") [-h|--help] [-v|--version] [--accessibility-status] <subcommand> [<args>...]
+ 
+-    SUBCOMMANDS:
+-    \(subcommandDescriptions.sortedBy { $0[0] }.toPaddingTable(columnSeparator: "   ").joined(separator: "\n"))
+-    """
++OPTIONS:
++  -h, --help              Print help
++  -v, --version           Print version
++  --accessibility-status  Print machine-readable Accessibility trust status for this process and exit
++
++SUBCOMMANDS:
++\(subcommandDescriptions.sortedBy { $0[0] }.toPaddingTable(columnSeparator: " ").joined(separator: "\n"))
++"""
+ 
+ @main
+ struct Main {
+@@ -25,11 +30,15 @@ struct Main {
+             exit(0)
+         }
+ 
+-        if args.first == "--version" || args.first == "-v" {
+-            printVersionAndExit(serverVersion: nil)
+-        }
++if args.first == "--version" || args.first == "-v" {
++    printVersionAndExit(serverVersion: nil)
++}
++
++if args.first == "--accessibility-status" {
++    printAccessibilityStatusAndExit()
++}
+ 
+-        let parsedArgs: any CmdArgs
++let parsedArgs: any CmdArgs
+         switch parseCmdArgs(args) {
+             case .cmd(let _parsedArgs):
+                 parsedArgs = _parsedArgs
+diff --git a/Sources/Common/util/accessibilityStatus.swift b/Sources/Common/util/accessibilityStatus.swift
+new file mode 100644
+index 00000000..705b800b
+--- /dev/null
++++ b/Sources/Common/util/accessibilityStatus.swift
+@@ -0,0 +1,26 @@
++import Foundation
++@preconcurrency import ApplicationServices
++
++private let axTrustedCheckOptionPrompt: String = kAXTrustedCheckOptionPrompt.takeRetainedValue() as String
++
++/// Non-prompting accessibility trust check for the current process.
++/// Returns true if the process is trusted for Accessibility, false otherwise.
++/// Does NOT trigger any system prompts or dialogs.
++public func checkAccessibilityStatusNonPrompting() -> Bool {
++    let options = [axTrustedCheckOptionPrompt: false] as CFDictionary
++    return AXIsProcessTrustedWithOptions(options)
++}
++
++/// Prints machine-readable accessibility status for the current process.
++/// Output format: key=value pairs, one per line, for shell parsing.
++/// Includes: executable path, bundle identifier (if available), and trust status.
++public func printAccessibilityStatusAndExit() -> Never {
++    let isTrusted = checkAccessibilityStatusNonPrompting()
++    let executablePath = CommandLine.arguments.first ?? "unknown"
++    let bundleId = Bundle.main.bundleIdentifier ?? "none"
++
++    print("executable=\(executablePath)")
++    print("bundle_id=\(bundleId)")
++    print("trusted=\(isTrusted ? "true" : "false")")
++    exit(0)
++}

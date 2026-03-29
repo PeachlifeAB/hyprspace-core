@@ -1,0 +1,180 @@
+#!/bin/bash
+set -euo pipefail
+
+runtime_root="$(cd "$(dirname "$0")" && pwd)"
+
+config_home() {
+    if [ -n "${HYPRSPACE_HOME_OVERRIDE:-}" ]; then
+        printf '%s\n' "$HYPRSPACE_HOME_OVERRIDE/.config"
+        return 0
+    fi
+
+    if [ -n "${XDG_CONFIG_HOME:-}" ]; then
+        printf '%s\n' "$XDG_CONFIG_HOME"
+        return 0
+    fi
+
+    printf '%s\n' "$HOME/.config"
+}
+
+user_home() {
+    if [ -n "${HYPRSPACE_HOME_OVERRIDE:-}" ]; then
+        printf '%s\n' "$HYPRSPACE_HOME_OVERRIDE"
+        return 0
+    fi
+
+    printf '%s\n' "$HOME"
+}
+
+ensure_runtime() {
+    if [ ! -d "$runtime_root" ]; then
+        echo "ERROR: missing update runtime at $runtime_root" >&2
+        exit 1
+    fi
+}
+
+render_banner() {
+    if command -v gum >/dev/null 2>&1; then
+        gum style --bold --foreground "#FAFAFA" --background "#7D56F4" --padding "0 1" "hyprspace update"
+        gum style --foreground "#626262" "scan for known issues"
+    else
+        echo "hyprspace update"
+        echo "scan for known issues"
+    fi
+}
+
+render_section_header() {
+    local title="$1"
+    if command -v gum >/dev/null 2>&1; then
+        gum style --bold --foreground "#7D56F4" "$title"
+    else
+        printf '%s\n' "$title"
+    fi
+}
+
+confirm_prompt() {
+    local prompt="$1"
+
+    if command -v gum >/dev/null 2>&1; then
+        gum confirm "$prompt" --default=true
+        return $?
+    fi
+
+    while true; do
+        printf '%s [Y/n]: ' "$prompt"
+        read -r answer
+        case "$answer" in
+            [Yy]|"") return 0 ;;
+            [Nn]) return 1 ;;
+            *) printf '%s\n' "Please answer Y or N." ;;
+        esac
+    done
+}
+
+backup_root() {
+    printf '%s\n' "$(config_home)/hyprspace/.backups/$(date -u +%Y%m%dT%H%M%SZ)"
+}
+
+create_backup() {
+    local target="$1"
+    local destination_root="$2"
+    local base_home
+    local relative_target
+
+    mkdir -p "$destination_root"
+
+    if [ ! -e "$target" ]; then
+        return 0
+    fi
+
+    base_home="$(user_home)"
+    relative_target="${target#"$base_home"/}"
+    if [ "$relative_target" = "$target" ]; then
+        relative_target="$(basename "$target")"
+    fi
+
+    mkdir -p "$destination_root/$(dirname "$relative_target")"
+    cp -a "$target" "$destination_root/$relative_target"
+    printf 'Backup created: %s\n' "$destination_root/$relative_target"
+}
+
+fixture_marker_path() {
+    printf '%s\n' "$(user_home)/.hyprspace-update-fixture"
+}
+
+fixture_applied_path() {
+    printf '%s\n' "$(config_home)/hyprspace/fixture-applied"
+}
+
+fixture_detect() {
+    [ -f "$(fixture_marker_path)" ]
+}
+
+fixture_prompt_text() {
+    printf '%s\n' "Fixture issue found"
+    printf '%s\n' "A test-only marker was found at ~/.hyprspace-update-fixture."
+}
+
+fixture_apply() {
+    local applied_path
+    applied_path="$(fixture_applied_path)"
+    mkdir -p "$(dirname "$applied_path")"
+    printf '%s\n' "fixture fixed" >"$applied_path"
+}
+
+fixture_verify() {
+    [ -f "$(fixture_applied_path)" ]
+}
+
+print_runtime_info() {
+    printf '{\n'
+    printf '  "runtime_root": "%s",\n' "$runtime_root"
+    printf '  "fixture_marker": "%s",\n' "$(fixture_marker_path)"
+    printf '  "fixture_applied": "%s"\n' "$(fixture_applied_path)"
+    printf '}\n'
+}
+
+run_fixture_issue() {
+    local backup_dir
+
+    fixture_prompt_text
+    if ! confirm_prompt "Backup and patch it?"; then
+        printf '%s\n' "Skipped fixture issue."
+        return 0
+    fi
+
+    backup_dir="$(backup_root)"
+    create_backup "$(fixture_marker_path)" "$backup_dir"
+    fixture_apply
+
+    if ! fixture_verify; then
+        echo "ERROR: fixture verification failed" >&2
+        exit 1
+    fi
+
+    printf '%s\n' "Fixed fixture issue."
+    printf '%s\n' "Backup location: $backup_dir"
+}
+
+main() {
+    ensure_runtime
+
+    if [ "${HYPRSPACE_UPDATE_TEST_MODE:-}" = "runtime" ]; then
+        print_runtime_info
+        return 0
+    fi
+
+    render_banner
+    echo
+
+    if ! fixture_detect; then
+        render_section_header "Status"
+        printf '%s\n' "No known issues found."
+        return 0
+    fi
+
+    render_section_header "Known issue"
+    run_fixture_issue
+}
+
+main "$@"

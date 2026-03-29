@@ -1,0 +1,357 @@
+# Summary: Makes ~/.config/hyprspace/config.toml the canonical active config and keeps compatibility paths as fallbacks only.
+
+diff --git a/Sources/AppBundle/config/ConfigFile.swift b/Sources/AppBundle/config/ConfigFile.swift
+index 141c876b..1222f089 100644
+--- a/Sources/AppBundle/config/ConfigFile.swift
++++ b/Sources/AppBundle/config/ConfigFile.swift
+@@ -2,26 +2,52 @@ import Common
+ import Foundation
+ 
+ let configDotfileName = ".hyprspace.toml"
+-func findCustomConfigUrl() -> ConfigFile {
+-    let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"].map { URL(filePath: $0) }
+-        ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config/")
+-    let candidates: [URL] = if let configLocation = serverArgs.configLocation {
+-        [URL(filePath: configLocation)]
+-    } else {
+-        [
+-            FileManager.default.homeDirectoryForCurrentUser.appending(path: configDotfileName),
+-            xdgConfigHome.appending(path: "hyprspace").appending(path: "hyprspace.toml"),
+-        ]
++let canonicalConfigFilename = "config.toml"
++
++func canonicalConfigDirectory(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
++    homeDirectory.appending(path: ".config").appending(path: "hyprspace")
++}
++
++func canonicalConfigUrl(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
++    canonicalConfigDirectory(homeDirectory: homeDirectory).appending(path: canonicalConfigFilename)
++}
++
++func compatibilityConfigUrls(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
++    [
++        homeDirectory.appending(path: configDotfileName),
++        homeDirectory.appending(path: "Library/Application Support/Hyprspace/config.toml"),
++    ]
++}
++
++func selectCustomConfigUrl(
++    forceConfigUrl: URL?,
++    canonicalConfigUrl: URL,
++    compatibilityCandidates: [URL],
++    fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
++) -> ConfigFile {
++    if let forceConfigUrl {
++        return .file(forceConfigUrl)
++    }
++    if fileExists(canonicalConfigUrl) {
++        return .file(canonicalConfigUrl)
+     }
+-    let existingCandidates: [URL] = candidates.filter { (candidate: URL) in FileManager.default.fileExists(atPath: candidate.path) }
+-    let count = existingCandidates.count
+-    return switch count {
++
++    let existingCompatibilityCandidates = compatibilityCandidates.filter(fileExists)
++    return switch existingCompatibilityCandidates.count {
+         case 0: .noCustomConfigExists
+-        case 1: .file(existingCandidates.first.orDie())
+-        default: .ambiguousConfigError(existingCandidates)
++        case 1: .file(existingCompatibilityCandidates.first.orDie())
++        default: .ambiguousConfigError(existingCompatibilityCandidates)
+     }
+ }
+ 
++func findCustomConfigUrl() -> ConfigFile {
++    selectCustomConfigUrl(
++        forceConfigUrl: serverArgs.configLocation.map { URL(filePath: $0) },
++        canonicalConfigUrl: canonicalConfigUrl(),
++        compatibilityCandidates: compatibilityConfigUrls(),
++    )
++}
++
+ enum ConfigFile {
+     case file(URL), ambiguousConfigError(_ candidates: [URL]), noCustomConfigExists
+ 
+@@ -31,4 +57,4 @@ enum ConfigFile {
+             case .ambiguousConfigError, .noCustomConfigExists: nil
+         }
+     }
+-}
++}
+\ No newline at end of file
+diff --git a/Sources/AppBundle/ui/MenuBar.swift b/Sources/AppBundle/ui/MenuBar.swift
+index f8727069..42d4661f 100644
+--- a/Sources/AppBundle/ui/MenuBar.swift
++++ b/Sources/AppBundle/ui/MenuBar.swift
+@@ -66,15 +66,16 @@ public func menuBar(viewModel: TrayMenuModel) -> some Scene { // todo should it
+ func openConfigButton(showShortcutGroup: Bool = false) -> some View {
+     let editor = getTextEditorToOpenConfig()
+     let button = Button("Open config in '\(editor.lastPathComponent)'") {
+-        let fallbackConfig: URL = FileManager.default.homeDirectoryForCurrentUser.appending(path: configDotfileName)
++        let fallbackConfig = canonicalConfigUrl()
+         switch findCustomConfigUrl() {
+             case .file(let url):
+                 url.open(with: editor)
+             case .noCustomConfigExists:
++                try? FileManager.default.createDirectory(at: canonicalConfigDirectory(), withIntermediateDirectories: true)
+                 _ = try? FileManager.default.copyItem(atPath: defaultConfigUrl.path, toPath: fallbackConfig.path)
+                 fallbackConfig.open(with: editor)
+-            case .ambiguousConfigError:
+-                fallbackConfig.open(with: editor)
++            case .ambiguousConfigError(let candidates):
++                candidates.first?.open(with: editor)
+         }
+     }.keyboardShortcut(",", modifiers: .command)
+     if showShortcutGroup {
+diff --git a/Sources/AppBundleTests/config/ConfigFileTest.swift b/Sources/AppBundleTests/config/ConfigFileTest.swift
+new file mode 100644
+index 00000000..3a970f7e
+--- /dev/null
++++ b/Sources/AppBundleTests/config/ConfigFileTest.swift
+@@ -0,0 +1,67 @@
++@testable import AppBundle
++import XCTest
++
++final class ConfigFileTest: XCTestCase {
++    func testCanonicalConfigDirectoryUsesDotConfigUnderHome() {
++        let home = URL(filePath: "/tmp/test-home")
++        XCTAssertEqual(canonicalConfigDirectory(homeDirectory: home).path, "/tmp/test-home/.config/hyprspace")
++        XCTAssertEqual(canonicalConfigUrl(homeDirectory: home).path, "/tmp/test-home/.config/hyprspace/config.toml")
++    }
++
++    func testCompatibilityConfigUrls() {
++        let home = URL(filePath: "/tmp/test-home")
++        XCTAssertEqual(
++            compatibilityConfigUrls(homeDirectory: home).map(\.path),
++            [
++                "/tmp/test-home/.hyprspace.toml",
++                "/tmp/test-home/Library/Application Support/Hyprspace/config.toml",
++            ],
++        )
++    }
++
++    func testCanonicalConfigWinsOverCompatibilityPaths() {
++        let canonical = URL(filePath: "/tmp/home/.config/hyprspace/config.toml")
++        let compatibility = [
++            URL(filePath: "/tmp/home/.hyprspace.toml"),
++            URL(filePath: "/tmp/home/Library/Application Support/Hyprspace/config.toml"),
++        ]
++        let selected = selectCustomConfigUrl(
++            forceConfigUrl: nil,
++            canonicalConfigUrl: canonical,
++            compatibilityCandidates: compatibility,
++            fileExists: { _ in true },
++        )
++        XCTAssertEqual(selected.urlOrNil?.path, canonical.path)
++    }
++
++    func testSingleCompatibilityPathIsUsedWhenCanonicalIsMissing() {
++        let canonical = URL(filePath: "/tmp/home/.config/hyprspace/config.toml")
++        let dotfile = URL(filePath: "/tmp/home/.hyprspace.toml")
++        let appSupport = URL(filePath: "/tmp/home/Library/Application Support/Hyprspace/config.toml")
++        let selected = selectCustomConfigUrl(
++            forceConfigUrl: nil,
++            canonicalConfigUrl: canonical,
++            compatibilityCandidates: [dotfile, appSupport],
++            fileExists: { $0 == dotfile },
++        )
++        XCTAssertEqual(selected.urlOrNil?.path, dotfile.path)
++    }
++
++    func testCompatibilityPathsAreAmbiguousWhenCanonicalIsMissing() {
++        let canonical = URL(filePath: "/tmp/home/.config/hyprspace/config.toml")
++        let dotfile = URL(filePath: "/tmp/home/.hyprspace.toml")
++        let appSupport = URL(filePath: "/tmp/home/Library/Application Support/Hyprspace/config.toml")
++        let selected = selectCustomConfigUrl(
++            forceConfigUrl: nil,
++            canonicalConfigUrl: canonical,
++            compatibilityCandidates: [dotfile, appSupport],
++            fileExists: { $0 == dotfile || $0 == appSupport },
++        )
++        switch selected {
++            case .ambiguousConfigError(let urls):
++                XCTAssertEqual(urls.map(\.path), [dotfile.path, appSupport.path])
++            default:
++                XCTFail("Expected ambiguous config error")
++        }
++    }
++}
+diff --git a/docs/goodies.adoc b/docs/goodies.adoc
+index 06e05c0c..0f215d71 100644
+--- a/docs/goodies.adoc
++++ b/docs/goodies.adoc
+@@ -38,13 +38,13 @@ full-screen-api.transition-duration.leave = 0 0
+ 
+ To highlight the focused window with colored border you can use link:https://github.com/FelixKratz/JankyBorders[JankyBorders].
+ 
+-You can also use `after-startup-command` to start JankyBorders together with AeroSpace
++You can also use `after-startup-command` to start JankyBorders together with Hyprspace
+ 
+ [source,toml]
+ ----
+ after-startup-command = [
+     # JankyBorders has a built-in detection of already running process,
+-    # so it won't be run twice on AeroSpace restart
++    # so it won't be run twice on Hyprspace restart
+     'exec-and-forget borders active_color=0xffe1e3e4 inactive_color=0xff494d64 width=5.0'
+ ]
+ ----
+@@ -95,46 +95,46 @@ Alternatively, inspect the source code, and build it yourself.
+ You can integrate AeroSpace workspace indicators with link:https://github.com/FelixKratz/SketchyBar[Sketchybar].
+ Use these snippets as a starting point.
+ 
+-.~/.aerospace.toml
++.~/.config/hyprspace/config.toml
+ [source,toml]
+ ----
+-# Run Sketchybar together with AeroSpace
++# Run Sketchybar together with Hyprspace
+ # sketchybar has a built-in detection of already running process,
+-# so it won't be run twice on AeroSpace restart
++# so it won't be run twice on Hyprspace restart
+ after-startup-command = ['exec-and-forget sketchybar']
+ 
+ # Notify Sketchybar about workspace change
+ exec-on-workspace-change = ['/bin/bash', '-c',
+-    'sketchybar --trigger aerospace_workspace_change FOCUSED_WORKSPACE=$AEROSPACE_FOCUSED_WORKSPACE'
++    'sketchybar --trigger hyprspace_workspace_change FOCUSED_WORKSPACE=$AEROSPACE_FOCUSED_WORKSPACE'
+ ]
+ ----
+ 
+ .~/.config/sketchybar/sketchybarrc
+ [source,bash]
+ ----
+-sketchybar --add event aerospace_workspace_change
++sketchybar --add event hyprspace_workspace_change
+ 
+-for sid in $(aerospace list-workspaces --all); do
++for sid in $(hyprspace list-workspaces --all); do
+     sketchybar --add item space.$sid left \
+-        --subscribe space.$sid aerospace_workspace_change \
++        --subscribe space.$sid hyprspace_workspace_change \
+         --set space.$sid \
+-        background.color=0x44ffffff \
+-        background.corner_radius=5 \
+-        background.height=20 \
+-        background.drawing=off \
+-        label="$sid" \
+-        click_script="aerospace workspace $sid" \
+-        script="$CONFIG_DIR/plugins/aerospace.sh $sid"
++            background.color=0x44ffffff \
++            background.corner_radius=5 \
++            background.height=20 \
++            background.drawing=off \
++            label="$sid" \
++            click_script="hyprspace workspace $sid" \
++            script="$CONFIG_DIR/plugins/hyprspace_workspace.sh $sid"
+ done
+ ----
+ 
+-.~/.config/sketchybar/plugins/aerospace.sh
++.~/.config/sketchybar/plugins/hyprspace_workspace.sh
+ [source,bash]
+ ----
+ #!/usr/bin/env bash
+ 
+ # make sure it's executable with:
+-# chmod +x ~/.config/sketchybar/plugins/aerospace.sh
++# chmod +x ~/.config/sketchybar/plugins/hyprspace_workspace.sh
+ 
+ if [ "$1" = "$FOCUSED_WORKSPACE" ]; then
+     sketchybar --set $NAME background.drawing=on
+@@ -150,7 +150,7 @@ link:https://github.com/Jean-Tinland/simple-bar[simple-bar] can be used to displ
+ 
+ In order to sync simple-bar with AeroSpace, add these lines to your AeroSpace config file:
+ 
+-.~/.aerospace.toml
++.~/.config/hyprspace/config.toml
+ [source,toml]
+ ----
+ # Notify simple-bar about window focus change
+@@ -172,7 +172,7 @@ exec-on-workspace-change = [
+ Invoking Safari/Terminal with a command the obvious way (`exec-and-forget open -a Safari`) results in an outcome that is probably not the intended one.
+ Namely, that any workspace already containing an instance of Safari/Terminal is brought in focus.
+ 
+-Opening *a new window* of a program that can support multiple windows (such as Safari or Terminal.app) can be accomplished with an AppleScript inlined in `aerospace.toml` as follows:
++Opening *a new window* of a program that can support multiple windows (such as Safari or Terminal.app) can be accomplished with an AppleScript inlined in `config.toml` as follows:
+ 
+ - Safari
+ +
+@@ -202,7 +202,7 @@ end tell'
+ 
+ If `automatically-unhide-macos-hidden-apps` isn't enough, you can disable `cmd-h` altogether (which will make this hotkey unavailable for apps that might use it for other purposes)
+ 
+-.~/.aerospace.toml
++.~/.config/hyprspace/config.toml
+ [source,toml]
+ ----
+ [mode.main.binding]
+@@ -216,7 +216,7 @@ If `automatically-unhide-macos-hidden-apps` isn't enough, you can disable `cmd-h
+ You can configure a custom shortcut to take a screenshot.
+ `screencapture` is a built-in macOS command.
+ 
+-.~/.aerospace.toml
++.~/.config/hyprspace/config.toml
+ [source,toml]
+ ----
+ alt-shift-s = 'exec-and-forget screencapture -i -c'
+diff --git a/docs/guide.adoc b/docs/guide.adoc
+index 798157f2..a8757972 100644
+--- a/docs/guide.adoc
++++ b/docs/guide.adoc
+@@ -62,13 +62,16 @@ xattr -d com.apple.quarantine /Applications/AeroSpace.app
+ [#config-location]
+ === Custom config location
+ 
+-AeroSpace tries to find the custom config in two locations:
++Hyprspace uses this canonical active config path:
+ 
+-. `~/.aerospace.toml`
+-. `+${XDG_CONFIG_HOME}/aerospace/aerospace.toml+`
+-(environment variable `XDG_CONFIG_HOME` fallbacks to `~/.config` if the variable is not presented)
++. `~/.config/hyprspace/config.toml`
+ 
+-If the config is found in more than one location then the ambiguity is reported.
++It can also read compatibility paths when the canonical config is missing:
++
++. `~/.hyprspace.toml`
++. `~/Library/Application Support/Hyprspace/config.toml`
++
++If more than one compatibility config is found at the same time, the ambiguity is reported.
+ 
+ === Config samples
+ 
+@@ -85,25 +88,26 @@ See https://toml.io/en/v1.0.0[TOML spec for more info]
+ [#default-config]
+ === Default config
+ 
+-The default config is part of the documentation, it contains all trivial configuration keys with comments.
+-Please read the default config!
++The starter config is part of the documentation.
++Please read the starter config first.
+ Non-trivial configuration options are mentioned further in this guide.
+-If no custom config is found, AeroSpace will load the default config.
++If no custom config is found, Hyprspace will load the bundled starter config.
+ 
+-If the key is omitted in the custom config, it falls back to the value in the default config, unless it's stated otherwise for the specific keys. Namely:
++If a key is omitted in the custom config, it falls back to the built-in runtime defaults, unless it's stated otherwise for the specific keys. Namely:
+ 
+ * `mode.*.binding`. It falls back to the empty TOML table. Your config is the source of truth for keyboard bindings. You must explicitly mention all the keyboard bindings and <<binding-modes,binding modes>> in your config.
+ * `on-focused-monitor-changed`. It falls back to the empty TOML array.
+-* `exec` TOML table. See: <<exec-env-vars>> (It's so boring and verbose, I don't even want to mention it in the `default-config.toml`)
++* `exec` TOML table. See: <<exec-env-vars>> (It's so boring and verbose, I don't even want to mention it in the starter config)
+ 
+-Rule of thumb: all the "scalar like" values always fall back to the default config. All the "vector like" values fall back to the empty TOML array or table.
++Rule of thumb: all the "scalar like" values always fall back to the built-in defaults. All the "vector like" values fall back to the empty TOML array or table.
+ 
+ That allows you to keep your config tidy and clean from trivial config keys for which you like the default values.
+ You can bootstrap your custom config by copying the default config from the app installation -
+ 
+ [source,shell]
+ ----
+-cp /Applications/AeroSpace.app/Contents/Resources/default-config.toml ~/.aerospace.toml
++mkdir -p ~/.config/hyprspace
++cp /Applications/Hyprspace.app/Contents/Resources/default-config.toml ~/.config/hyprspace/config.toml
+ ----
+ 
+ link:config-examples/default-config.toml[Download default-config.toml]

@@ -1,0 +1,382 @@
+# Summary: Extends new-window-or-open with a trailing position <preset> action and preserves the caller's current workspace for the running-app path.
+
+diff --git a/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift b/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift
+--- a/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift
++++ b/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift
+@@ -10,36 +10,22 @@
+ 
+     @MainActor
+     func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
+-        guard let app = NSWorkspace.shared.runningApplications.first(where: {
+-            $0.localizedName == args.appName.val || $0.bundleIdentifier == args.appName.val
+-        }) else {
+-            let process = try Process.run(URL(filePath: "/usr/bin/open"), arguments: ["-a", args.appName.val])
+-            process.waitUntilExit()
+-            return process.terminationReason == .exit && process.terminationStatus == 0
++        if let postOpenAction = args.postOpenAction {
++            guard let windowId = try await NewWindowOrOpenFlow.performAndResolveWindowId(appName: args.appName.val, env: env, io: io) else {
++                return false
++            }
++            return try await run(postOpenAction, on: windowId, env, io)
+         }
+-        let appName = app.localizedName ?? args.appName.val
+-        app.activate(options: .activateIgnoringOtherApps)
+-        let script = """
+-tell application "System Events"
+-    tell process "\(appName)"
+-        set frontmost to true
+-        delay 0.2
+-        set fileItems to name of menu items 1 thru 2 of menu 1 of menu bar item "File" of menu bar 1
+-        repeat with itemName in fileItems
+-            if itemName contains "New" then
+-                click menu item (itemName as text) of menu 1 of menu bar item "File" of menu bar 1
+-                return
+-            end if
+-        end repeat
+-        error "no New item found in first two File menu items"
+-    end tell
+-end tell
+-"""
+-        let result = try Process.run(URL(filePath: "/usr/bin/osascript"), arguments: ["-e", script])
+-        result.waitUntilExit()
+-        guard result.terminationReason == .exit && result.terminationStatus == 0 else {
+-            return io.err("Could not open new window for '\(args.appName.val)'")
++        return try await NewWindowOrOpenFlow.perform(appName: args.appName.val, env: env, io: io)
++    }
++
++    @MainActor
++    private func run(_ postOpenAction: NewWindowOrOpenCmdArgs.PostOpenAction, on windowId: UInt32, _ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
++        switch postOpenAction {
++            case .position(let placement):
++                var positionArgs = PositionCmdArgs(rawArgs: [])
++                positionArgs.targetPlacement = .initialized(placement)
++                return try await PositionCommand(args: positionArgs.copy(\.windowId, windowId)).run(env, io)
+         }
+-        return true
+     }
+ }
+
+diff --git a/Sources/AppBundleTests/command/NewWindowOrOpenCommandTest.swift b/Sources/AppBundleTests/command/NewWindowOrOpenCommandTest.swift
+--- a/Sources/AppBundleTests/command/NewWindowOrOpenCommandTest.swift
++++ b/Sources/AppBundleTests/command/NewWindowOrOpenCommandTest.swift
+@@ -4,7 +4,47 @@
+ 
+ final class NewWindowOrOpenCommandTest: XCTestCase {
+     func testParse() {
+-        testParseCommandSucc("new-window-or-open Ghostty", NewWindowOrOpenCmdArgs(rawArgs: []).copy(\.appName, .initialized("Ghostty")))
+-        assertEquals(parseCommand("new-window-or-open").errorOrNil, "ERROR: Argument '<app-name>' is mandatory")
++        var expected = NewWindowOrOpenCmdArgs(rawArgs: [])
++        expected.appName = .initialized("Calculator")
++        testParseCommandSucc("new-window-or-open Calculator", expected)
++    }
++
++    func testParseWithPositionPreset() {
++        var expected = NewWindowOrOpenCmdArgs(rawArgs: [])
++        expected.appName = .initialized("Calculator")
++        expected.postOpenAction = .position(.center)
++        testParseCommandSucc("new-window-or-open Calculator position center", expected)
++    }
++
++    func testSelectNewWindowLeafPrefersRealFinderWindowOverServices() {
++        let element = AXUIElementCreateSystemWide()
++        let leaves = [
++            AppMenuLeaf(element: element, leaf: "New Ghostree Tab Here", fullPath: "Finder / Services / New Ghostree Tab Here / New Ghostree Tab Here"),
++            AppMenuLeaf(element: element, leaf: "New Ghostree Window Here", fullPath: "Finder / Services / New Ghostree Window Here / New Ghostree Window Here"),
++            AppMenuLeaf(element: element, leaf: "New Finder Window", fullPath: "File / New Finder Window / New Finder Window"),
++            AppMenuLeaf(element: element, leaf: "New Folder", fullPath: "File / New Folder / New Folder"),
++        ]
++
++        XCTAssertEqual(selectNewWindowLeaf(from: leaves, appName: "Finder")?.leaf, "New Finder Window")
++    }
++
++    func testSelectNewWindowLeafFallsBackToGenericNewWindow() {
++        let element = AXUIElementCreateSystemWide()
++        let leaves = [
++            AppMenuLeaf(element: element, leaf: "New Tab", fullPath: "File / New Tab / New Tab"),
++            AppMenuLeaf(element: element, leaf: "New Window", fullPath: "File / New Window / New Window"),
++        ]
++
++        XCTAssertEqual(selectNewWindowLeaf(from: leaves, appName: "Ghostty")?.leaf, "New Window")
++    }
++
++    func testSelectNewWindowLeafMatchesTerminalProfileEntry() {
++        let element = AXUIElementCreateSystemWide()
++        let leaves = [
++            AppMenuLeaf(element: element, leaf: "New Window with Profile - tokyo-night", fullPath: "Shell / New Window / New Window with Profile - tokyo-night / New Window with Profile - tokyo-night"),
++            AppMenuLeaf(element: element, leaf: "Move Tab to New Window", fullPath: "Window / Move Tab to New Window / Move Tab to New Window"),
++        ]
++
++        XCTAssertEqual(selectNewWindowLeaf(from: leaves, appName: "Terminal")?.leaf, "New Window with Profile - tokyo-night")
+     }
+ }
+
+diff --git a/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift b/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift
+--- a/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift
++++ b/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift
+@@ -5,13 +5,36 @@
+     public init(rawArgs: StrArrSlice) { self.rawArgsForStrRepr = .init(rawArgs) }
+     public static let parser: CmdParser<Self> = cmdParser(
+         kind: .newWindowOrOpen,
+-        allowInConfig: false,
+-        help: "USAGE: aerospace new-window-or-open <app-name>",
++        allowInConfig: true,
++        help: "USAGE: aerospace new-window-or-open <app-name> [position <preset>]",
+         flags: [:],
+-        posArgs: [newArgParser(\.appName, consumeStrCliArg, mandatoryArgPlaceholder: "<app-name>")]
++        posArgs: [
++            newArgParser(\.appName, consumeStrCliArg, mandatoryArgPlaceholder: "<app-name>"),
++            ArgParser(\.postOpenAction, parsePostOpenAction),
++        ]
+     )
++
++    public enum PostOpenAction: Equatable, Sendable {
++        case position(PositionCmdArgs.Placement)
++    }
+ 
+     /*conforms*/ public var windowId: UInt32?
+     /*conforms*/ public var workspaceName: WorkspaceName?
+     public var appName: Lateinit<String> = .uninitialized
++    public var postOpenAction: PostOpenAction? = nil
+ }
++
++private func parsePostOpenAction(i: ArgParserInput) -> ParsedCliArgs<NewWindowOrOpenCmdArgs.PostOpenAction?> {
++    guard i.arg == "position" else {
++        return .fail("Unknown post-open action '\(i.arg)'. Expected 'position'", advanceBy: 1)
++    }
++    guard let rawPlacement = i.getOrNil(relativeIndex: 1) else {
++        return .fail("<preset> is mandatory after 'position'", advanceBy: 1)
++    }
++    switch parseEnum(rawPlacement, PositionCmdArgs.Placement.self) {
++        case .success(let placement):
++            return .succ(.position(placement), advanceBy: 2)
++        case .failure(let error):
++            return .fail(error, advanceBy: 2)
++    }
++}
+
+diff --git a/Sources/Common/cmdHelpGenerated.swift b/Sources/Common/cmdHelpGenerated.swift
+--- a/Sources/Common/cmdHelpGenerated.swift
++++ b/Sources/Common/cmdHelpGenerated.swift
+@@ -121,7 +121,7 @@
+     USAGE: move [-h|--help] [--window-id <window-id>] [--boundaries <boundary>] [--boundaries-action <boundary-action>] (left|down|up|right)
+     """
+ let new_window_or_open_help_generated = """
+-    USAGE: new-window-or-open <app-name>
++    USAGE: new-window-or-open <app-name> [position <preset>]
+     """
+ let reload_config_help_generated = """
+     USAGE: reload-config [-h|--help] [--no-gui] [--dry-run]
+
+diff --git a/Sources/AppBundle/command/impl/NewWindowOrOpenFlow.swift b/Sources/AppBundle/command/impl/NewWindowOrOpenFlow.swift
+new file mode 100644
+--- /dev/null
++++ b/Sources/AppBundle/command/impl/NewWindowOrOpenFlow.swift
+@@ -0,0 +1,189 @@
++import AppKit
++import Common
++import Foundation
++
++enum NewWindowOrOpenFlow {
++    @MainActor
++    static func perform(appName: String, env: CmdEnv, io: CmdIo) async throws -> Bool {
++        if let runningApp = runningApplication(named: appName) {
++            return try await triggerNewWindow(for: runningApp, env: env, io: io)
++        } else {
++            return launchApplication(named: appName, io: io)
++        }
++    }
++
++    @MainActor
++    static func performAndResolveWindowId(appName: String, env: CmdEnv, io: CmdIo) async throws -> UInt32? {
++        let runningApp = runningApplication(named: appName)
++        let previousWindowIds = try await knownWindowIds(appBundleId: runningApp?.bundleIdentifier)
++        let previousAllWindowIds = try await allAliveWindowIds()
++        guard try await perform(appName: appName, env: env, io: io) else {
++            return nil
++        }
++        let windowId = if let appBundleId = runningApp?.bundleIdentifier {
++            try await waitForNewWindowId(appBundleId: appBundleId, previousWindowIds: previousWindowIds)
++        } else {
++            try await waitForNewFocusedWindowId(previousWindowIds: previousAllWindowIds)
++        }
++        guard let windowId else {
++            _ = io.err("Failed to identify the newly opened window for '\(appName)'")
++            return nil
++        }
++        return windowId
++    }
++
++    @MainActor
++    private static func runningApplication(named appName: String) -> NSRunningApplication? {
++        let candidateNames = normalizedApplicationNames(from: appName)
++        return NSWorkspace.shared.runningApplications.first { app in
++            if let localizedName = app.localizedName?.lowercased(), candidateNames.contains(localizedName) {
++                return true
++            }
++            if let bundleIdentifier = app.bundleIdentifier?.lowercased(), candidateNames.contains(bundleIdentifier) {
++                return true
++            }
++            return false
++        }
++    }
++
++    private static func normalizedApplicationNames(from appName: String) -> Set<String> {
++        let loweredAppName = appName.lowercased()
++        var candidateNames: Set<String> = [loweredAppName]
++        if loweredAppName.hasSuffix(".app") {
++            candidateNames.insert(String(loweredAppName.dropLast(4)))
++        }
++        return candidateNames
++    }
++
++    @MainActor
++    private static func triggerNewWindow(for app: NSRunningApplication, env: CmdEnv, io: CmdIo) async throws -> Bool {
++        guard let bundleId = app.bundleIdentifier else {
++            return io.err("Could not find bundle ID for running application '\(app.localizedName ?? "Unknown app")'")
++        }
++
++        let callerWorkspace = focus.workspace
++        let previousWindowIds = try await knownWindowIds(appBundleId: bundleId)
++
++        guard let leaves = try await activateAppAndCollectMenuLeaves(bundleId: bundleId, io: io) else {
++            return false
++        }
++
++        guard let leaf = selectNewWindowLeaf(from: leaves, appName: app.localizedName ?? "") else {
++            return io.err("No matching new-window menu item found for '\(app.localizedName ?? bundleId)'")
++        }
++        AXUIElementPerformAction(leaf.element, kAXPressAction as CFString)
++        guard let newWindowId = try await waitForNewWindowId(appBundleId: bundleId, previousWindowIds: previousWindowIds),
++              let newWindow = Window.get(byId: newWindowId)
++        else {
++ _ = callerWorkspace.focusWorkspace()
++ return true
++ }
++
++ if newWindow.nodeWorkspace != callerWorkspace {
++            _ = moveWindowToWorkspace(newWindow, callerWorkspace, io, focusFollowsWindow: true, failIfNoop: false)
++        } else {
++            _ = callerWorkspace.focusWorkspace()
++        }
++        return true
++    }
++
++    private static func launchApplication(named appName: String, io: CmdIo) -> Bool {
++        let process = Process()
++        process.executableURL = URL(filePath: "/usr/bin/open")
++        process.arguments = ["-a", appName]
++
++        do {
++            try process.run()
++            process.waitUntilExit()
++            guard process.terminationReason == .exit && process.terminationStatus == 0 else {
++                return io.err("Failed to open application '\(appName)': open exited with status \(process.terminationStatus) and reason \(process.terminationReason.rawValue)")
++            }
++            return true
++        } catch {
++            return io.err("Failed to open application '\(appName)': \(error.localizedDescription)")
++        }
++    }
++
++    @MainActor
++    private static func knownWindowIds(appBundleId: String?) async throws -> Set<UInt32> {
++        guard let appBundleId else { return [] }
++        return try await aliveWindowIdsByBundleId()[appBundleId] ?? []
++    }
++
++    @MainActor
++    private static func allAliveWindowIds() async throws -> Set<UInt32> {
++        Set(try await aliveWindowIdsByBundleId().values.flatMap { $0 })
++    }
++
++    @MainActor
++    private static func aliveWindowIdsByBundleId() async throws -> [String: Set<UInt32>] {
++        let mapping = try await MacApp.refreshAllAndGetAliveWindowIds(frontmostAppBundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
++        var result: [String: Set<UInt32>] = [:]
++        for (app, windowIds) in mapping {
++            if let bundleId = app.rawAppBundleId {
++                for windowId in windowIds {
++                    _ = try await MacWindow.getOrRegister(windowId: windowId, macApp: app)
++                }
++                result[bundleId] = Set(windowIds)
++            }
++        }
++        return result
++    }
++
++ @MainActor
++ private static func waitForNewWindowId(appBundleId: String, previousWindowIds: Set<UInt32>) async throws -> UInt32? {
++ for _ in 0..<40 {
++            try await Task.sleep(nanoseconds: 100_000_000)
++
++            let newWindowIds = try await knownWindowIds(appBundleId: appBundleId).subtracting(previousWindowIds)
++            if let windowId = newWindowIds.singleOrNil() {
++                return windowId
++            }
++            if let focusedWindow = focus.windowOrNil,
++               newWindowIds.contains(focusedWindow.windowId),
++               focusedWindow.app.rawAppBundleId == appBundleId {
++                return focusedWindow.windowId
++            }
++        }
++        return nil
++    }
++
++    @MainActor
++    private static func waitForNewFocusedWindowId(previousWindowIds: Set<UInt32>) async throws -> UInt32? {
++        for _ in 0..<40 {
++            try await Task.sleep(nanoseconds: 100_000_000)
++
++            let newWindowIds = try await allAliveWindowIds().subtracting(previousWindowIds)
++            if let focusedWindow = focus.windowOrNil, newWindowIds.contains(focusedWindow.windowId) {
++                return focusedWindow.windowId
++            }
++            if let windowId = newWindowIds.singleOrNil() {
++                return windowId
++            }
++        }
++        return nil
++    }
++}
++
++func selectNewWindowLeaf(from leaves: [AppMenuLeaf], appName: String) -> AppMenuLeaf? {
++    let loweredAppName = appName.lowercased()
++    let preferredLeaves = ["new \(loweredAppName) window"]
++
++    for preferredLeaf in preferredLeaves {
++        if let match = leaves.first(where: { $0.leaf.lowercased() == preferredLeaf }) {
++            return match
++        }
++    }
++
++    if let genericNewWindow = leaves.first(where: {
++        let loweredLeaf = $0.leaf.lowercased()
++        return loweredLeaf.hasPrefix("new window")
++    }) {
++        return genericNewWindow
++    }
++
++    return leaves.first(where: {
++        let loweredLeaf = $0.leaf.lowercased()
++        return $0.fullPath.lowercased().hasPrefix("file / new") && loweredLeaf.contains("window")
++    })
++}
+
+diff --git a/docs/aerospace-new-window-or-open.adoc b/docs/aerospace-new-window-or-open.adoc
+--- a/docs/aerospace-new-window-or-open.adoc
++++ b/docs/aerospace-new-window-or-open.adoc
+@@ -6,9 +6,13 @@
+ 
+ == Synopsis
+ 
+-`aerospace new-window-or-open <app-name>`
++`aerospace new-window-or-open <app-name> [position <preset>]`
+ 
+ == Description
+ 
+ If the target app is already running, open a new window by clicking the first File menu item containing "New".
+ If the app is not running, launch it by app name and return.
++
++If `position <preset>` is provided, the newly opened window is placed using the requested floating preset.
++
++Example: `aerospace new-window-or-open "Finder" position center`

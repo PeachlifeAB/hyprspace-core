@@ -1,0 +1,26 @@
+/.idea
+log/
+refcode/
+AGENTS.md
+CLAUDE.md
+PLAN.md
+JOURNAL.md
+promises/
+AeroSpace/
+symlinks/
+/.debug
+/.release
+/.shell-completion
+/.site
+/.man
+/Gemfile.lock
+# IDK, AppCode randomly creates this EMPTY file. I have no idea what this is
+/default.profraw
+.DS_Store
+/.xcode-build
+/.build
+/.swiftpm
+/.vscode
+/.local-install-test
+/Hyprspace/.specify
+refcode/

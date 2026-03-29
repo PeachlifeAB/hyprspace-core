@@ -1,0 +1,67 @@
+From c980cda5c4942620c127607da4b0f3b526983b67 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?David=20=C3=85berg?= <git@davidaberg.me>
+Date: Fri, 20 Mar 2026 01:29:04 +0100
+Subject: [PATCH] restore generated files without git checkout
+
+# Summary: Restores generated files after release builds without checking them out from the upstream git base.
+
+---
+ build-release.sh | 35 ++++++++++++++++++++++++++++++++++-
+ 1 file changed, 34 insertions(+), 1 deletion(-)
+
+diff --git a/build-release.sh b/build-release.sh
+index 5bf8697d..8ae6557d 100755
+--- a/build-release.sh
++++ b/build-release.sh
+@@ -37,6 +37,32 @@ while test $# -gt 0; do
+     esac
+ done
+ 
++restore_generated_dir="$(mktemp -d)"
++cleanup_generated_dir() {
++    rm -rf "$restore_generated_dir"
++}
++trap cleanup_generated_dir EXIT
++
++snapshot_generated_file() {
++    local path="$1"
++    mkdir -p "$restore_generated_dir/$(dirname "$path")"
++    cp "$path" "$restore_generated_dir/$path"
++}
++
++restore_generated_file() {
++    local path="$1"
++    cp "$restore_generated_dir/$path" "$path"
++}
++
++for generated_file in \
++    AeroSpace.xcodeproj/project.pbxproj \
++    Sources/Common/versionGenerated.swift \
++    Sources/Common/gitHashGenerated.swift \
++    Sources/Common/cmdHelpGenerated.swift \
++    Sources/Cli/subcommandDescriptionsGenerated.swift; do
++    snapshot_generated_file "$generated_file"
++done
++
+ #############
+ ### BUILD ###
+ #############
+@@ -81,7 +107,14 @@ xcodebuild-pretty .release/xcodebuild.log clean build \
+     -configuration "$xcode_configuration" \
+     -derivedDataPath .xcode-build
+ 
+-git checkout -- AeroSpace.xcodeproj/project.pbxproj Sources/Common/versionGenerated.swift Sources/Common/gitHashGenerated.swift Sources/Common/cmdHelpGenerated.swift Sources/Cli/subcommandDescriptionsGenerated.swift
++for generated_file in \
++    AeroSpace.xcodeproj/project.pbxproj \
++    Sources/Common/versionGenerated.swift \
++    Sources/Common/gitHashGenerated.swift \
++    Sources/Common/cmdHelpGenerated.swift \
++    Sources/Cli/subcommandDescriptionsGenerated.swift; do
++    restore_generated_file "$generated_file"
++done
+ 
+ cp -r ".xcode-build/Build/Products/$xcode_configuration/Hyprspace.app" .release
+ cp -r .build/apple/Products/Release/hyprspace .release
+-- 
+2.50.1 (Apple Git-155)
+

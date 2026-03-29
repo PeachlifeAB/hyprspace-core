@@ -1,0 +1,100 @@
+# Summary: Adds local-prefix install support and Hyprspace-named release install targets in install-from-sources.sh.
+
+diff --git a/install-from-sources.sh b/install-from-sources.sh
+index 6381e96e..20277ee5 100755
+--- a/install-from-sources.sh
++++ b/install-from-sources.sh
+@@ -3,28 +3,85 @@ cd "$(dirname "$0")"
+ source ./script/setup.sh
+ 
+ rebuild=1
++skip_docs=0
++skip_shell_parser=0
++allow_dirty=0
++local_prefix=''
++codesign_identity=''
+ while test $# -gt 0; do
+     case $1 in
+-        --dont-rebuild) rebuild=0; shift ;;
+-        *) echo "Unknown option $1"; exit 1 ;;
++    --dont-rebuild)
++        rebuild=0
++        shift
++        ;;
++    --skip-docs)
++        skip_docs=1
++        shift
++        ;;
++    --skip-shell-parser)
++        skip_shell_parser=1
++        shift
++        ;;
++    --allow-dirty)
++        allow_dirty=1
++        shift
++        ;;
++    --local-prefix)
++        local_prefix="$2"
++        shift 2
++        ;;
++    --codesign-identity)
++        codesign_identity="$2"
++        shift 2
++        ;;
++    *)
++        echo "Unknown option $1"
++        exit 1
++        ;;
+     esac
+ done
+ 
+ if test $rebuild == 1; then
+-    ./build-release.sh
++    build_args=()
++    if test $skip_docs == 1; then
++        build_args+=(--skip-docs)
++    fi
++    if test $skip_shell_parser == 1; then
++        build_args+=(--skip-shell-parser)
++    fi
++    if test $allow_dirty == 1; then
++        build_args+=(--allow-dirty)
++    fi
++    if test -n "$codesign_identity"; then
++        build_args+=(--codesign-identity "$codesign_identity")
++    fi
++    ./build-release.sh "${build_args[@]}"
+ fi
+ 
+ PATH="$PATH:$(brew --prefix)/bin"
+ export PATH
+ 
+-brew list aerospace-dev-user/aerospace-dev-tap/aerospace-dev > /dev/null 2>&1 && brew uninstall aerospace-dev-user/aerospace-dev-tap/aerospace-dev # Compatibility. Drop after a while
+-brew list nikitabobko/local-tap/aerospace-dev > /dev/null 2>&1 && brew uninstall nikitabobko/local-tap/aerospace-dev
+-brew list aerospace > /dev/null 2>&1 && brew uninstall aerospace
+-which brew-install-path > /dev/null 2>&1 || brew install nikitabobko/tap/brew-install-path
++if test -n "$local_prefix"; then
++    mkdir -p "$local_prefix/bin" "$local_prefix/Applications"
++    cp -R ./.release/Hyprspace.app "$local_prefix/Applications/Hyprspace.app"
++    cp ./.release/hyprspace "$local_prefix/bin/hyprspace"
++    mkdir -p "$local_prefix/share/zsh/site-functions" "$local_prefix/share/fish/vendor_completions.d" "$local_prefix/etc/bash_completion.d"
++    cp ./.release/Hyprspace-v"$(plutil -extract CFBundleShortVersionString raw ./.release/Hyprspace.app/Contents/Info.plist)"/shell-completion/zsh/_hyprspace "$local_prefix/share/zsh/site-functions/_hyprspace"
++    cp ./.release/Hyprspace-v"$(plutil -extract CFBundleShortVersionString raw ./.release/Hyprspace.app/Contents/Info.plist)"/shell-completion/fish/hyprspace.fish "$local_prefix/share/fish/vendor_completions.d/hyprspace.fish"
++    cp ./.release/Hyprspace-v"$(plutil -extract CFBundleShortVersionString raw ./.release/Hyprspace.app/Contents/Info.plist)"/shell-completion/bash/hyprspace "$local_prefix/etc/bash_completion.d/hyprspace"
++    exit 0
++fi
++
++brew list hyprspace >/dev/null 2>&1 && brew uninstall hyprspace
++brew list aerospace-dev-user/aerospace-dev-tap/aerospace-dev >/dev/null 2>&1 && brew uninstall aerospace-dev-user/aerospace-dev-tap/aerospace-dev # Compatibility. Drop after a while
++brew list nikitabobko/local-tap/aerospace-dev >/dev/null 2>&1 && brew uninstall nikitabobko/local-tap/aerospace-dev
++brew list aerospace >/dev/null 2>&1 && brew uninstall aerospace
++which brew-install-path >/dev/null 2>&1 || brew install nikitabobko/tap/brew-install-path
+ 
+ # Override HOMEBREW_CACHE. Otherwise, homebrew refuses to "redownload" the snapshot file
+ # Maybe there is a better way, I don't know
+-rm -rf /tmp/aerospace-from-sources-brew-cache
+-HOMEBREW_CACHE=/tmp/aerospace-from-sources-brew-cache brew install-path ./.release/aerospace-dev.rb
++rm -rf /tmp/hyprspace-from-sources-brew-cache
++HOMEBREW_CACHE=/tmp/hyprspace-from-sources-brew-cache brew install-path ./.release/hyprspace.rb
+ 
+ rm -rf "$(brew --prefix)/Library/Taps/aerospace-dev-user" # Compatibility. Drop after a while

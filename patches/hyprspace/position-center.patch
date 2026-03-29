@@ -1,0 +1,245 @@
+# Summary: Adds a position center command that floats the target window and centers it at a large preset size.
+
+diff --git a/Sources/AppBundle/command/cmdManifest.swift b/Sources/AppBundle/command/cmdManifest.swift
+index 85c955d6..81016bd5 100644
+--- a/Sources/AppBundle/command/cmdManifest.swift
++++ b/Sources/AppBundle/command/cmdManifest.swift
+@@ -60,6 +60,8 @@ extension CmdArgs {
+                 command = MoveWorkspaceToMonitorCommand(args: self as! MoveWorkspaceToMonitorCmdArgs)
+             case .newWindowOrOpen:
+                 command = NewWindowOrOpenCommand(args: self as! NewWindowOrOpenCmdArgs)
++            case .position:
++                command = PositionCommand(args: self as! PositionCmdArgs)
+             case .reloadConfig:
+                 command = ReloadConfigCommand(args: self as! ReloadConfigCmdArgs)
+             case .resize:
+diff --git a/Sources/AppBundle/command/impl/PositionCommand.swift b/Sources/AppBundle/command/impl/PositionCommand.swift
+new file mode 100644
+index 00000000..0ef04c19
+--- /dev/null
++++ b/Sources/AppBundle/command/impl/PositionCommand.swift
+@@ -0,0 +1,36 @@
++import AppKit
++import Common
++
++struct PositionCommand: Command {
++    let args: PositionCmdArgs
++
++    var shouldResetClosedWindowsCache: Bool = false
++    var shouldRefreshModel: Bool = false
++
++    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
++        guard let target = args.resolveTargetOrReportError(env, io) else { return false }
++        guard let window = target.windowOrNil else {
++            return io.err("No window in focus")
++        }
++
++        if !window.isFloating {
++            window.bindAsFloatingWindow(to: target.workspace)
++        }
++
++        let monitor = window.nodeMonitor ?? target.workspace.workspaceMonitor
++        let rect = monitor.visibleRect
++
++        let targetWidth = rect.width * 0.75
++        let targetHeight = rect.height * 0.75
++        let targetX = rect.minX + (rect.width * 0.125)
++        let targetY = rect.minY + (rect.height * 0.125)
++
++        let size = CGSize(width: targetWidth, height: targetHeight)
++        let topLeft = CGPoint(x: targetX, y: targetY)
++
++        window.setAxFrame(topLeft, size)
++        window.lastFloatingSize = size
++
++        return true
++    }
++}
+diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/AppBundleTests/command/PositionCommandTest.swift
+new file mode 100644
+index 00000000..12f06871
+--- /dev/null
++++ b/Sources/AppBundleTests/command/PositionCommandTest.swift
+@@ -0,0 +1,41 @@
++import XCTest
++import Common
++@testable import AppBundle
++
++final class PositionCommandTest: XCTestCase {
++    func testParsePositionCenter() {
++        var expected = PositionCmdArgs(rawArgs: [])
++        expected.targetPlacement = .initialized(.center)
++        testParseCommandSucc("position center", expected)
++    }
++
++    @MainActor
++    func testPositionCenter() async throws {
++        setUpWorkspacesForTests()
++
++        let workspace = Workspace.get(byName: "W")
++        let window = TestWindow.new(id: 1, parent: workspace.rootTilingContainer)
++        _ = window.focusWindow()
++
++        var expected = PositionCmdArgs(rawArgs: [])
++        expected.targetPlacement = .initialized(.center)
++        let command = PositionCommand(args: expected)
++
++        _ = try await command.run(.defaultEnv, .emptyStdin)
++
++        XCTAssertTrue(window.isFloating, "Window should be floating after position command")
++
++        let monitorRect = workspace.workspaceMonitor.visibleRect
++        if let rect = try await window.getAxRect() {
++            let expectedWidth = monitorRect.width * 0.75
++            let expectedHeight = monitorRect.height * 0.75
++            let expectedX = monitorRect.minX + (monitorRect.width * 0.125)
++            let expectedY = monitorRect.minY + (monitorRect.height * 0.125)
++
++            XCTAssertEqual(rect.width, expectedWidth, accuracy: 1.0)
++            XCTAssertEqual(rect.height, expectedHeight, accuracy: 1.0)
++            XCTAssertEqual(rect.minX, expectedX, accuracy: 1.0)
++            XCTAssertEqual(rect.minY, expectedY, accuracy: 1.0)
++        } else {
++            XCTFail("Window has no rect")
++        }
++    }
++}
+diff --git a/Sources/AppBundleTests/tree/TestWindow.swift b/Sources/AppBundleTests/tree/TestWindow.swift
+index 154130d6..d08f2aca 100644
+--- a/Sources/AppBundleTests/tree/TestWindow.swift
++++ b/Sources/AppBundleTests/tree/TestWindow.swift
+@@ -39,4 +39,10 @@ final class TestWindow: Window, CustomStringConvertible {
+     @MainActor override func getAxRect() async throws -> Rect? { // todo change to not Optional
+         _rect
+     }
++
++    override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
++        if let topLeft = topLeft, let size = size {
++            _rect = Rect(topLeftX: topLeft.x, topLeftY: topLeft.y, width: size.width, height: size.height)
++        }
++    }
+ }
+diff --git a/Sources/Cli/subcommandDescriptionsGenerated.swift b/Sources/Cli/subcommandDescriptionsGenerated.swift
+index 9c563f2a..add4a693 100644
+--- a/Sources/Cli/subcommandDescriptionsGenerated.swift
++++ b/Sources/Cli/subcommandDescriptionsGenerated.swift
+@@ -29,6 +29,7 @@ let subcommandDescriptions = [
+     ["  move-node-to-workspace", "Move the focused window to the specified workspace"],
+     ["  move-workspace-to-monitor", "Move workspace to monitor targeted by relative direction, by order, or by pattern."],
+     ["  move", "Move the focused window in the given direction"],
++    ["  position", "Float the focused window and place it at a preset position on the screen"],
+     ["  reload-config", "Reload currently active config"],
+     ["  resize", "Resize the focused window"],
+     ["  split", "Split focused window"],
+diff --git a/Sources/Common/cmdArgs/cmdArgsManifest.swift b/Sources/Common/cmdArgs/cmdArgsManifest.swift
+index df193a6d..4ad8ff93 100644
+--- a/Sources/Common/cmdArgs/cmdArgsManifest.swift
++++ b/Sources/Common/cmdArgs/cmdArgsManifest.swift
+@@ -30,6 +30,7 @@ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
+     case moveNodeToWorkspace = "move-node-to-workspace"
+     case moveWorkspaceToMonitor = "move-workspace-to-monitor"
+     case newWindowOrOpen = "new-window-or-open"
++    case position
+     case reloadConfig = "reload-config"
+     case resize
+     case split
+@@ -107,6 +108,8 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
+                 result["move-workspace-to-display"] = SubCommandParser(MoveWorkspaceToMonitorCmdArgs.init)
+             case .newWindowOrOpen:
+                 result[kind.rawValue] = SubCommandParser(NewWindowOrOpenCmdArgs.init)
++            case .position:
++                result[kind.rawValue] = SubCommandParser(PositionCmdArgs.init)
+             case .reloadConfig:
+                 result[kind.rawValue] = SubCommandParser(ReloadConfigCmdArgs.init)
+             case .resize:
+diff --git a/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift b/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift
+new file mode 100644
+index 00000000..11111111
+--- /dev/null
++++ b/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift
+@@ -0,0 +1,27 @@
++public struct PositionCmdArgs: CmdArgs {
++    public let rawArgsForStrRepr: EquatableNoop<StrArrSlice>
++    public init(rawArgs: StrArrSlice) { self.rawArgsForStrRepr = .init(rawArgs) }
++    public static let parser: CmdParser<Self> = cmdParser(
++        kind: .position,
++        allowInConfig: true,
++        help: "USAGE: aerospace position <preset>",
++        flags: [:],
++        posArgs: [newArgParser(\.targetPlacement, consumePlacement, mandatoryArgPlaceholder: "<preset>")]
++    )
++
++    public enum Placement: String, Equatable, Sendable {
++        case center
++    }
++
++    /*conforms*/ public var windowId: UInt32?
++    /*conforms*/ public var workspaceName: WorkspaceName?
++    public var targetPlacement: Lateinit<Placement> = .uninitialized
++}
++
++private func consumePlacement(i: ArgParserInput) -> ParsedCliArgs<PositionCmdArgs.Placement> {
++    if let placement = PositionCmdArgs.Placement(rawValue: i.arg) {
++        return .succ(placement, advanceBy: 1)
++    } else {
++        return .init(.failure("Invalid placement '\(i.arg)'. Expected 'center'"), advanceBy: 1)
++    }
++}
+diff --git a/Sources/Common/cmdHelpGenerated.swift b/Sources/Common/cmdHelpGenerated.swift
+index 277752bf..967f2a83 100644
+--- a/Sources/Common/cmdHelpGenerated.swift
++++ b/Sources/Common/cmdHelpGenerated.swift
+@@ -126,6 +126,9 @@ let new_window_or_open_help_generated = """
+ let reload_config_help_generated = """
+     USAGE: reload-config [-h|--help] [--no-gui] [--dry-run]
+     """
++let position_help_generated = """
++    USAGE: position [-h|--help] [--window-id <window-id>] (center)
++    """
+ let resize_help_generated = """
+     USAGE: resize [-h|--help] [--window-id <window-id>] (smart|smart-opposite|width|height) [+|-]<number>
+     """
+diff --git a/docs/aerospace-position.adoc b/docs/aerospace-position.adoc
+new file mode 100644
+index 00000000..5ae1ed5f
+--- /dev/null
++++ b/docs/aerospace-position.adoc
+@@ -0,0 +1,37 @@
++= aerospace-position(1)
++include::util/man-attributes.adoc[]
++:manname: aerospace-position
++// tag::purpose[]
++:manpurpose: Set the position of the focused window (floating windows only)
++// end::purpose[]
++
++// =========================================================== Synopsis
++== Synopsis
++[verse]
++// tag::synopsis[]
++aerospace position [-h|--help] [--window-id <window-id>] (center)
++
++// end::synopsis[]
++
++// =========================================================== Description
++== Description
++
++// tag::body[]
++{manpurpose}
++
++Currently only supports centering floating windows. The `center` argument positions the window in the middle of the screen, taking up 75% of the screen dimensions with equal padding on all sides.
++
++If the window is a tiling window, it will first be changed to floating before being positioned.
++
++// =========================================================== Options
++include::./util/conditional-options-header.adoc[]
++
++-h, --help:: Print help
++
++--window-id <window-id>::
++include::./util/window-id-flag-desc.adoc[]
++
++// end::body[]
++
++// =========================================================== Footer
++include::util/man-footer.adoc[]
+
