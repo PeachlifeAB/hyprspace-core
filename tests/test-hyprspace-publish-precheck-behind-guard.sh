@@ -9,7 +9,7 @@ declare -a HYPRSPACE_TEST_CLEANUP_PATHS=()
 
 log_dir="$root_dir/log/tests"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-log_file="$log_dir/${timestamp}-hyprspace-publish-precheck-behind-guard.log"
+log_file="$log_dir/${timestamp}-hyprspace-publish-pre-release-checks-behind-guard.log"
 workspace_root="$(make_temp_dir)"
 source_repo="$workspace_root/hyprspace-core"
 tap_repo="$workspace_root/homebrew-hyprspace"
@@ -57,14 +57,14 @@ git -C "$remote_worktree" add README.md
 git -C "$remote_worktree" -c user.name='Test' -c user.email='test@example.com' commit -m 'remote update' >/dev/null
 git -C "$remote_worktree" push origin main >/dev/null 2>&1
 
-echo "[step] run publish precheck with behind tap repo"
+echo "[step] run publish pre-release-checks with behind tap repo"
 set +e
-output="$(bash "$source_repo/scripts/release/precheck.sh" 0.1.3 2>&1)"
+output="$(bash "$source_repo/scripts/release/pre-release-checks.sh" 0.1.3 2>&1)"
 status=$?
 set -e
 printf '%s\n' "$output"
 
-test "$status" -ne 0 || die "[fail] publish precheck unexpectedly succeeded"
+test "$status" -ne 0 || die "[fail] publish pre-release-checks unexpectedly succeeded"
 grep -q "tap repo branch 'main' is behind origin/main by 1 commit(s)" <<<"$output" || die "[fail] missing explicit behind guard message"
 
-echo "[ok] publish precheck behind guard test passed"
+echo "[ok] publish pre-release-checks behind guard test passed"

@@ -19,7 +19,7 @@ Code, scripts, manifests, and patch files are the source of truth. This file onl
 - Patch validation: `PATCH_BIN="$(command -v gpatch)" bash scripts/patch/validate-patches.sh`
 - Regenerate patch index: `python3 scripts/internal/generate-patches-doc.py`
 - Release/public-surface mapping: `scripts/internal/public-release-surface-manifest.json`
-- Release publish precheck: `./scripts/release/precheck.sh <version>`
+- Release publish pre-release-checks: `./scripts/release/pre-release-checks.sh <version>`
 - Real release publish: `./scripts/release/publish-hyprspace-release.sh <version>`
 
 ## Patch rules

@@ -27,6 +27,11 @@ require_git_repo() {
     git -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "path is not a git repo: $path"
 }
 
+assert_changelog_mentions_version() {
+    test -f "CHANGELOG.md" || die "missing CHANGELOG.md"
+    grep -Fq "$new_version" CHANGELOG.md || die "CHANGELOG.md must mention $new_version before publish"
+}
+
 current_branch() {
     local repo_path="$1"
     git -C "$repo_path" symbolic-ref --quiet --short HEAD 2>/dev/null || echo main
@@ -142,3 +147,4 @@ assert_repo_push_safe "." "source"
 assert_repo_push_safe "$tap_dir" "tap"
 assert_repo_push_safe "$releases_dir" "releases"
 assert_publish_version_available
+assert_changelog_mentions_version

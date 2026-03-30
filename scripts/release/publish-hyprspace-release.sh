@@ -27,7 +27,7 @@ if [ -z "$NEW_VERSION" ]; then
     exit 1
 fi
 
-bash ./scripts/release/precheck.sh "$NEW_VERSION"
+bash ./scripts/release/pre-release-checks.sh "$NEW_VERSION"
 
 mkdir -p ./log/release
 publish_log_file="./log/release/$(date -u +%Y%m%dT%H%M%SZ)-publish-hyprspace-release.log"
@@ -147,6 +147,12 @@ commit_if_needed() {
     git -C "$repo_path" push
 }
 
+commit_version_file() {
+    git add version.txt
+    git commit -m "Release $TAG"
+    git push origin main
+}
+
 current_branch() {
     local repo_path="$1"
     git -C "$repo_path" symbolic-ref --quiet --short HEAD 2>/dev/null || echo main
@@ -195,8 +201,6 @@ verify_release_body() {
 step "preflight"
 require_cmd curl
 
-echo "$NEW_VERSION" >version.txt
-
 step "syncing live release patch truth"
 sync_live_release_patch_truth
 
@@ -241,6 +245,10 @@ bash tests/test-hyprspace-public-surface-docs.sh
 
 step "syncing public releases repo docs"
 sync_repo_if_needed "$RELEASES_DIR" "releases" "docs: sync public release surface" README.md LEGAL.md LICENSE
+
+step "committing release version"
+echo "$NEW_VERSION" >version.txt
+commit_version_file
 
 step "tagging source repo"
 git tag -a "$TAG" -m "$TAG"
