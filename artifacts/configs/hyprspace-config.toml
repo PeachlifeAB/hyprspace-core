@@ -32,7 +32,9 @@ inner.vertical = 18
 outer.left = 18
 outer.right = 18
 outer.bottom = 18
-outer.top = [{ monitor."built-in" = 18 }, { monitor."main" = 40 }, 40]
+outer.top = [{ monitor."built-in" = 18 }, { monitor."main" = 48 }, 48]
+
+# ---------- MAIN KEY BINDINGS -----------
 
 [mode.main.binding]
 alt-enter = 'new-window-or-open {{terminal}}'
@@ -60,27 +62,24 @@ alt-shift-k = 'move up'
 alt-shift-l = 'move right'
 
 alt-tab = 'focus-back-and-forth'
+alt-shift-space = 'layout floating tiling'
+alt-shift-semicolon = 'mode service'
+alt-shift-slash = 'layout tiles horizontal vertical'
+alt-shift-comma = 'layout accordion horizontal vertical'
+alt-minus = 'resize smart -50'
+alt-equal = 'resize smart +50'
+alt-f = 'fullscreen'
+alt-cmd-f = 'macos-native-fullscreen'
 
+# ---------- SERVICE MODE -----------
 
-[[on-window-detected]]
-if.app-id = 'com.apple.iphonesimulator'
-run = ["layout floating"]
+[mode.service.binding]
+esc = ['reload-config', 'mode main']
+r = ['flatten-workspace-tree', 'mode main']
+f = ['layout floating tiling', 'mode main']
+alt-shift-semicolon = 'mode main'
 
-[[on-window-detected]]
-if.app-id = 'com.macpaw.CleanMyMac'
-run = ["layout floating"]
-
-[[on-window-detected]]
-if.app-id = 'org.hammerspoon.Hammerspoon'
-run = ["layout floating"]
-
-[[on-window-detected]]
-if.app-name-regex-substring = 'Hammerspoon Console'
-run = ["layout floating"]
-
-[[on-window-detected]]
-if.app-id = 'com.tinyspeck.slackmacgap'
-run = ['layout floating']
+# ---------- WINDOW CONTROL -----------
 
 [[on-window-detected]]
 if.app-id = "com.apple.ScreenSharing"
@@ -91,7 +90,19 @@ if.app-id = "com.apple.MobileSMS"
 run = ["layout floating"]
 
 [[on-window-detected]]
+if.app-id = 'com.apple.iphonesimulator'
+run = ["layout floating"]
+
+[[on-window-detected]]
+if.app-id = 'com.tinyspeck.slackmacgap'
+run = ['layout floating']
+
+[[on-window-detected]]
 if.app-id = "com.microsoft.teams2"
+run = ["layout floating"]
+
+[[on-window-detected]]
+if.app-id = 'com.macpaw.CleanMyMac'
 run = ["layout floating"]
 
 [[on-window-detected]]
@@ -99,13 +110,5 @@ if.app-id = "com.macpaw.CleanMyMac4"
 run = ["layout floating"]
 
 [[on-window-detected]]
-if.app-id = "com.skyjos.mac.fileexplorerpro"
-run = ["layout floating"]
-
-[[on-window-detected]]
 if.app-id = "com.bitwarden.desktop"
-run = ["layout floating"]
-
-[[on-window-detected]]
-if.app-id = "pro.betterdisplay.BetterDisplay"
 run = ["layout floating"]
