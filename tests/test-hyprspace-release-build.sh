@@ -53,7 +53,13 @@ fi
 cd "$checkout_dir"
 
 echo "[step] running internal release builder with local dev settings"
-./script/internal/build-release.sh --build-version "$build_version" --skip-docs --skip-shell-parser --allow-dirty --codesign-identity -
+source "$root_dir/product.conf"
+sign_id="$HYPRSPACE_CODESIGN_IDENTITY"
+if [[ "$sign_id" != "-" ]] && ! security find-identity -v -p codesigning | grep -Fq "\"$sign_id\""; then
+    echo "[info] signing identity not found: $sign_id — falling back to adhoc signing (-)"
+    sign_id="-"
+fi
+./script/internal/build-release.sh --build-version "$build_version" --skip-docs --skip-shell-parser --allow-dirty --codesign-identity "$sign_id"
 
 echo "[step] asserting release artifacts"
 test -d .release/Hyprspace.app

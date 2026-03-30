@@ -9,6 +9,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$ROOT_DIR/scripts/internal/init-human-log.sh"
 init_human_log "$ROOT_DIR" install install-local
 cd "$ROOT_DIR"
+source "$ROOT_DIR/product.conf"
 
 if [[ "${HYPRSPACE_USE_EXISTING_RELEASE:-0}" = "1" ]]; then
     echo "======================================================"
@@ -27,10 +28,10 @@ else
     DEV_BUILD_HASH="${HYPRSPACE_GIT_HASH:-$(git -C "$ROOT_DIR" rev-parse --short HEAD)}"
     DEV_BUILD_VERSION="$(cat "$ROOT_DIR/version.txt")-$DEV_BUILD_HASH"
 
-    SIGN_ID="${HYPRSPACE_CODESIGN_IDENTITY:--}"
+    SIGN_ID="$HYPRSPACE_CODESIGN_IDENTITY"
     if [[ "$SIGN_ID" != "-" ]] && ! security find-identity -v -p codesigning | grep -Fq "\"$SIGN_ID\""; then
-        echo "ERROR: requested signing identity not found: $SIGN_ID" >&2
-        exit 1
+        echo "WARNING: signing identity not found: $SIGN_ID — falling back to adhoc signing (-)" >&2
+        SIGN_ID="-"
     fi
 
     # Bypass strict ruby version dependencies and missing shell-parsers using flags

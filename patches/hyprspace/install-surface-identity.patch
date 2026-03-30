@@ -234,12 +234,14 @@ diff --git a/build-shell-completion.sh b/build-shell-completion.sh
 diff --git a/generate.sh b/generate.sh
 --- a/generate.sh
 +++ b/generate.sh
-@@ -3,25 +3,51 @@
+@@ -3,25 +3,53 @@
  source ./script/setup.sh
  
  export XCODEGEN_AEROSPACE_CODE_SIGN_IDENTITY="aerospace-codesign-certificate"
 -build_version="0.0.0-SNAPSHOT"
 +root_dir="$(cd .. && pwd)"
++source "$root_dir/product.conf"
++export XCODEGEN_AEROSPACE_CODE_SIGN_IDENTITY="$HYPRSPACE_CODESIGN_IDENTITY"
 +release_version="$(cat "$root_dir/version.txt")"
 +hyprspace_build_hash="${HYPRSPACE_GIT_HASH:-$(git -C "$root_dir" rev-parse --short HEAD)}"
 +aerospace_base_version="$(cat "$root_dir/aerospace_version.txt")"
@@ -295,7 +297,7 @@ diff --git a/generate.sh b/generate.sh
      exit 1
  fi
  
-@@ -35,14 +61,22 @@
+@@ -35,14 +63,22 @@
      ./script/generate-cmd-help.sh
  fi
  
@@ -320,7 +322,7 @@ diff --git a/generate.sh b/generate.sh
              continue
          fi
          subcommand=$(basename $file | sed 's/^aerospace-//' | sed 's/\.adoc$//')
-@@ -51,7 +85,7 @@
+@@ -51,7 +87,7 @@
      done
  }
  
@@ -329,7 +331,7 @@ diff --git a/generate.sh b/generate.sh
  // FILE IS GENERATED FROM docs/aerospace-*.adoc files
  // TO REGENERATE THE FILE RUN generate.sh
  
-@@ -60,10 +94,10 @@
+@@ -60,10 +96,10 @@
  ]
  EOF
  
@@ -625,14 +627,15 @@ diff --git a/script/internal/build-release.sh b/script/internal/build-release.sh
 new file mode 100755
 --- /dev/null
 +++ b/script/internal/build-release.sh
-@@ -0,0 +1,441 @@
+@@ -0,0 +1,442 @@
 +#!/bin/bash
 +cd "$(dirname "$0")/../.."
 +source ./script/setup.sh
 +
 +root_dir="$(cd .. && pwd)"
++source "$root_dir/product.conf"
 +build_version="$(cat "$root_dir/version.txt")"
-+codesign_identity="aerospace-codesign-certificate"
++codesign_identity="$HYPRSPACE_CODESIGN_IDENTITY"
 +build_docs=1
 +generate_shell_parser=1
 +allow_dirty=0
