@@ -5,19 +5,10 @@ cd "$(dirname "$0")/../.."
 source ./product.conf
 source ./scripts/verify/repo-state-table.sh
 
-mkdir -p ./log/release
-publish_log_file="./log/release/$(date -u +%Y%m%dT%H%M%SZ)-publish-hyprspace-release.log"
-exec > >(tee "$publish_log_file") 2>&1
-
-validate_only=0
 NEW_VERSION=""
 
 while test $# -gt 0; do
     case "$1" in
-    --validate-only)
-        validate_only=1
-        shift
-        ;;
     --*)
         echo "error: unknown option: $1" >&2
         exit 1
@@ -31,21 +22,16 @@ done
 
 if [ -z "$NEW_VERSION" ]; then
     echo "error: version argument is required" >&2
-    echo "usage: $0 <semver-version> [--validate-only]" >&2
+    echo "usage: $0 <semver-version>" >&2
     echo "example: $0 0.1.3" >&2
     exit 1
 fi
 
-# Validate version is greater than the previous tag
-PREV_VERSION="$(git tag --list "${HYPRSPACE_TAG_PREFIX}*" --sort=-version:refname | head -1 | sed "s/^${HYPRSPACE_TAG_PREFIX}//")"
-if [ -n "$PREV_VERSION" ]; then
-    # Compare using sort -V (version sort)
-    LOWER="$(printf '%s\n%s' "$PREV_VERSION" "$NEW_VERSION" | sort -V | head -1)"
-    if [ "$LOWER" != "$PREV_VERSION" ] || [ "$PREV_VERSION" = "$NEW_VERSION" ]; then
-        echo "error: version $NEW_VERSION must be greater than previous tag $PREV_VERSION" >&2
-        exit 1
-    fi
-fi
+bash ./scripts/release/precheck.sh "$NEW_VERSION"
+
+mkdir -p ./log/release
+publish_log_file="./log/release/$(date -u +%Y%m%dT%H%M%SZ)-publish-hyprspace-release.log"
+exec > >(tee "$publish_log_file") 2>&1
 
 BUILD_VERSION="$NEW_VERSION"
 TAG="${HYPRSPACE_TAG_PREFIX}${BUILD_VERSION}"
@@ -148,15 +134,6 @@ sync_live_release_patch_truth() {
     fi
 }
 
-assert_clean_source_repo() {
-    if [ -n "$(git status --short)" ]; then
-        git status --short >&2
-        echo "[clue] the real publish path tags source history, so it must start from a committed source repo." >&2
-        echo "[clue] if the release flow just regenerated patch truth or docs, commit those tracked changes first so the tag matches what you ship." >&2
-        die "source repo has uncommitted changes; commit them before running the real publish path"
-    fi
-}
-
 commit_if_needed() {
     local repo_path="$1"
     local commit_message="$2"
@@ -178,22 +155,6 @@ current_branch() {
 has_upstream() {
     local repo_path="$1"
     git -C "$repo_path" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1
-}
-
-ensure_repo_remote_ready() {
-    local repo_path="$1"
-    local label="$2"
-    local branch
-    branch="$(current_branch "$repo_path")"
-
-    git -C "$repo_path" remote get-url origin >/dev/null 2>&1 || die "$label repo missing origin remote: $repo_path"
-
-    if ! has_upstream "$repo_path"; then
-        die "$label repo branch '$branch' has no upstream; push it first with: git -C $repo_path push -u origin $branch"
-    fi
-
-    git -C "$repo_path" fetch --quiet origin "$branch" >/dev/null 2>&1 || die "$label repo failed to fetch origin/$branch"
-    git -C "$repo_path" rev-parse --verify "origin/$branch" >/dev/null 2>&1 || die "$label repo remote branch origin/$branch is missing"
 }
 
 sync_repo_if_needed() {
@@ -220,51 +181,6 @@ sync_repo_if_needed() {
     fi
 }
 
-assert_clean_repo() {
-    local repo_path="$1"
-    if [ -n "$(git -C "$repo_path" status --short)" ]; then
-        git -C "$repo_path" status --short >&2
-        die "repo has uncommitted changes before publish: $repo_path"
-    fi
-}
-
-assert_repo_only_dirty_paths() {
-    local repo_path="$1"
-    shift
-    local -a allowed_paths=("$@")
-    local -a dirty_paths=()
-    local path allowed
-
-    while IFS= read -r path; do
-        [ -n "$path" ] || continue
-        dirty_paths+=("$path")
-    done < <(
-        {
-            git -C "$repo_path" diff --name-only
-            git -C "$repo_path" diff --cached --name-only
-            git -C "$repo_path" ls-files --others --exclude-standard
-        } | sort -u
-    )
-
-    if [ "${#dirty_paths[@]}" -eq 0 ]; then
-        return 0
-    fi
-
-    for path in "${dirty_paths[@]}"; do
-        allowed=0
-        for allowed_path in "${allowed_paths[@]}"; do
-            if [ "$path" = "$allowed_path" ]; then
-                allowed=1
-                break
-            fi
-        done
-        if [ "$allowed" -eq 0 ]; then
-            git -C "$repo_path" status --short >&2
-            die "repo has unmanaged uncommitted changes before publish: $repo_path"
-        fi
-    done
-}
-
 download_public_zip() {
     local destination="$1"
     curl -fsSL "$ZIP_URL" -o "$destination"
@@ -277,30 +193,12 @@ verify_release_body() {
 }
 
 step "preflight"
-require_cmd python3
-require_cmd git
 require_cmd curl
-require_cmd gpatch
-require_git_repo "$TAP_DIR"
-require_git_repo "$RELEASES_DIR"
-print_repo_state_table preflight \
-    source "." \
-    tap "$TAP_DIR" \
-    releases "$RELEASES_DIR"
-if [ "$validate_only" -eq 0 ]; then
-    require_cmd gh
-    assert_clean_source_repo
-    echo "$NEW_VERSION" >version.txt
-    assert_repo_only_dirty_paths "$TAP_DIR" README.md Casks/hyprspace.rb
-    assert_repo_only_dirty_paths "$RELEASES_DIR" README.md LEGAL.md LICENSE
-    ensure_repo_remote_ready "$TAP_DIR" "tap"
-    ensure_repo_remote_ready "$RELEASES_DIR" "releases"
-fi
 
-if [ "$validate_only" -eq 0 ]; then
-    step "syncing live release patch truth"
-    sync_live_release_patch_truth
-fi
+echo "$NEW_VERSION" >version.txt
+
+step "syncing live release patch truth"
+sync_live_release_patch_truth
 
 step "regenerating patch docs"
 patches_doc_before_hash="$(shasum -a 256 docs/patches.md 2>/dev/null || echo missing)"
@@ -336,12 +234,6 @@ test -s "$RELEASE_NOTES_PATH" || die "rendered release notes are empty"
 
 step "running packaged local install smoke"
 RUN_INTEGRATION_TESTS=1 /bin/bash tests/test-hyprspace-local-install.sh
-
-if [ "$validate_only" -eq 1 ]; then
-    publish_exit_label="validate-only-final"
-    publish_success_line="VALIDATE-ONLY SUCCESS: ${TAG}"
-    exit 0
-fi
 
 step "syncing and validating local public surfaces"
 python3 ./scripts/internal/validate-public-release-surface.py --phase local-sync

@@ -111,7 +111,7 @@ echo "========================================="
 cd "$ROOT_DIR"
 
 if [[ "${SKIP_PREFLIGHT:-0}" != "1" ]]; then
-    bash scripts/verify/preflight.sh
+    bash scripts/verify/patch-stack-preflight.sh
 fi
 
 if [[ "${RUN_ALL_TESTS:-0}" == "1" ]]; then
