@@ -94,6 +94,7 @@ brew style "$cask_file"
 echo "[step] verifying cask caveats"
 grep -Fq "Run 'hyprspace init' to start the setup wizard." "$cask_file"
 grep -Fq "Hyprspace.app was installed to /Applications." "$cask_file"
+grep -Fq 'depends_on formula: "gum"' "$cask_file"
 
 echo "[step] running brew audit --cask (offline)"
 local_audit_dir="$(make_temp_dir)"

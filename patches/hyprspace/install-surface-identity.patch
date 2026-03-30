@@ -470,7 +470,7 @@ diff --git a/project.yml b/project.yml
 diff --git a/script/build-brew-cask.sh b/script/build-brew-cask.sh
 --- a/script/build-brew-cask.sh
 +++ b/script/build-brew-cask.sh
-@@ -2,77 +2,114 @@
+@@ -2,77 +2,115 @@
  cd "$(dirname "$0")/.."
  source ./script/setup.sh
  
@@ -586,6 +586,7 @@ diff --git a/script/build-brew-cask.sh b/script/build-brew-cask.sh
  
 -  depends_on macos: ">= :ventura" # macOS 13
 +  depends_on macos: ">= :sequoia" # macOS 15
++  depends_on formula: "gum"
 +
 +  app "$zip_root_dir/Hyprspace.app"
 +  binary "$zip_root_dir/bin/hyprspace"
@@ -627,7 +628,7 @@ diff --git a/script/internal/build-release.sh b/script/internal/build-release.sh
 new file mode 100755
 --- /dev/null
 +++ b/script/internal/build-release.sh
-@@ -0,0 +1,442 @@
+@@ -0,0 +1,451 @@
 +#!/bin/bash
 +cd "$(dirname "$0")/../.."
 +source ./script/setup.sh
@@ -948,6 +949,9 @@ new file mode 100755
 +cp .release/libexec/hyprspace-cli .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-cli
 +cp -r "$root_dir/libexec/hyprspace-init" .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init
 +cp -r "$root_dir/libexec/hyprspace-update" .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-update
++"$root_dir/scripts/internal/build-init-helpers.sh" \
++    .release/libexec/hyprspace-init \
++    .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init
 +cp -R "$root_dir/scripts"/. .release/Hyprspace.app/Contents/Resources/scripts/
 +cp -R "$root_dir/artifacts"/. .release/Hyprspace.app/Contents/Resources/artifacts/
 +cp -r ./docs/config-examples .release/Hyprspace.app/Contents/Resources/AeroSpace/docs/config-examples
@@ -968,7 +972,9 @@ new file mode 100755
 +### SIGN CLI ###
 +################
 +
-+codesign -s "$codesign_identity" .release/libexec/hyprspace-cli
++codesign -f -s "$codesign_identity" .release/libexec/hyprspace-cli
++codesign -f -s "$codesign_identity" .release/libexec/hyprspace-init/hyprspace-notify-menubar
++codesign -f -s "$codesign_identity" .release/libexec/hyprspace-init/hyprspace-set-wallpaper
 +codesign -f -s "$codesign_identity" .release/Hyprspace.app
 +
 +################
@@ -983,6 +989,8 @@ new file mode 100755
 +        printf '%s\n' .release/Hyprspace.app/Contents/Resources/libexec
 +        printf '%s\n' .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-cli
 +        list_tree_with_prefix "$root_dir/libexec/hyprspace-init" .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init
++        printf '%s\n' .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init/hyprspace-notify-menubar
++        printf '%s\n' .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init/hyprspace-set-wallpaper
 +        list_tree_with_prefix "$root_dir/libexec/hyprspace-update" .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-update
 +        list_tree_with_prefix "$root_dir/scripts" .release/Hyprspace.app/Contents/Resources/scripts
 +        list_tree_with_prefix "$root_dir/artifacts" .release/Hyprspace.app/Contents/Resources/artifacts
@@ -1020,6 +1028,8 @@ new file mode 100755
 +
 +check-universal-binary .release/Hyprspace.app/Contents/MacOS/Hyprspace
 +check-universal-binary .release/libexec/hyprspace-cli
++check-universal-binary .release/libexec/hyprspace-init/hyprspace-notify-menubar
++check-universal-binary .release/libexec/hyprspace-init/hyprspace-set-wallpaper
 +
 +check-contains-hash .release/Hyprspace.app/Contents/MacOS/Hyprspace
 +check-contains-hash .release/libexec/hyprspace-cli

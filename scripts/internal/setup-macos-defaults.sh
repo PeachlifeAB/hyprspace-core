@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+helper_path="$ROOT_DIR/libexec/hyprspace-init/hyprspace-notify-menubar"
+
 if [ "${HYPRSPACE_SKIP_MACOS_DEFAULTS:-0}" = "1" ]; then
     echo "-> Skipping macOS defaults setup (HYPRSPACE_SKIP_MACOS_DEFAULTS=1)."
     exit 0
@@ -59,7 +63,16 @@ if [ "${HYPRSPACE_ENABLE_SKETCHYBAR:-0}" = "1" ]; then
     if [ "$current_menubar" != "1" ]; then
         echo "-> Hiding menu bar (sketchybar replaces it)..."
         defaults write NSGlobalDomain _HIHideMenuBar -bool true
-        swift -e 'import Foundation; DistributedNotificationCenter.default().postNotificationName(NSNotification.Name("AppleInterfaceMenuBarHidingChangedNotification"), object: nil, userInfo: nil, options: [.deliverImmediately, .postToAllSessions])'
+        if [ ! -x "$helper_path" ]; then
+            echo "-> Menu bar notification helper missing at $helper_path, continuing."
+        elif ! output="$($helper_path 2>&1)"; then
+            echo "-> Menu bar notification helper failed, continuing without blocking init."
+            printf '%s\n' "$output"
+        else
+            if [ -n "$output" ]; then
+                printf '%s\n' "$output"
+            fi
+        fi
     else
         echo "-> Menu bar already hidden, skipping."
     fi

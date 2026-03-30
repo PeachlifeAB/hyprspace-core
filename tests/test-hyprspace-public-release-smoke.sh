@@ -78,8 +78,12 @@ echo "[step] asserting installed public artifacts"
 test -d /Applications/Hyprspace.app
 nested_cli="/opt/homebrew/Caskroom/hyprspace/${build_version}/Hyprspace-v${build_version}/libexec/hyprspace-cli"
 packaged_init="/opt/homebrew/Caskroom/hyprspace/${build_version}/Hyprspace-v${build_version}/libexec/hyprspace-init/hyprspace-init"
+packaged_notify_helper="/opt/homebrew/Caskroom/hyprspace/${build_version}/Hyprspace-v${build_version}/libexec/hyprspace-init/hyprspace-notify-menubar"
+packaged_wallpaper_helper="/opt/homebrew/Caskroom/hyprspace/${build_version}/Hyprspace-v${build_version}/libexec/hyprspace-init/hyprspace-set-wallpaper"
 test -x "$nested_cli"
 test -x "$packaged_init"
+test -x "$packaged_notify_helper"
+test -x "$packaged_wallpaper_helper"
 echo "[info] nested_cli=$nested_cli"
 echo "[info] packaged_init=$packaged_init"
 xattr -l "$nested_cli" 2>/dev/null || true

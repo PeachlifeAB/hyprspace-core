@@ -122,6 +122,8 @@ echo "======================================================"
 echo "📚 Installing opinionated companion dependencies..."
 echo "======================================================"
 
+"$ROOT_DIR/scripts/internal/build-init-helpers.sh" "$ROOT_DIR/libexec/hyprspace-init"
+
 "$ROOT_DIR/scripts/internal/setup-dependencies.sh"
 
 echo "======================================================"

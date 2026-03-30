@@ -40,6 +40,7 @@ grep -q 'product hyprspace' script/internal/build-release.sh
 grep -q 'Hyprspace.app' script/internal/build-release.sh
 grep -q 'hyprspace' script/internal/build-release.sh
 grep -q 'Contents/Resources/libexec/hyprspace-init' script/internal/build-release.sh
+grep -q 'build-init-helpers.sh' script/internal/build-release.sh
 grep -q 'cp -r "$root_dir/artifacts" .release/artifacts' script/internal/build-release.sh
 grep -q 'artifacts/docs/hyprspace-releases-README.md' script/internal/build-release.sh
 grep -q 'artifacts/docs/bundled-legal-README.md' script/internal/build-release.sh
@@ -48,6 +49,7 @@ grep -q 'homepage "https://hyprspace.net/"' script/build-brew-cask.sh
 grep -q 'url "\$zip_uri",' script/build-brew-cask.sh
 grep -q 'verified: "github.com/PeachlifeAB/hyprspace-releases/"' script/build-brew-cask.sh
 grep -q 'depends_on macos: ">= :sequoia"' script/build-brew-cask.sh
+grep -q 'depends_on formula: "gum"' script/build-brew-cask.sh
 grep -q "Run 'hyprspace init' to start the setup wizard\." script/build-brew-cask.sh
 grep -q 'Hyprspace\.app was installed to /Applications\.' script/build-brew-cask.sh
 grep -q 'libexec/hyprspace-init' install-from-sources.sh
@@ -59,5 +61,6 @@ grep -q 'setup-hyprspace-config.sh' "$root_dir/scripts/install/install-local.sh"
 grep -q 'setup-sketchybar-config.sh' "$root_dir/scripts/install/install-local.sh"
 grep -q 'setup-macos-defaults.sh' "$root_dir/scripts/install/install-local.sh"
 grep -q 'setup-wallpaper.sh' "$root_dir/scripts/install/install-local.sh"
+grep -q 'build-init-helpers.sh' "$root_dir/scripts/install/install-local.sh"
 
 echo "[ok] hyprspace install surface test passed"

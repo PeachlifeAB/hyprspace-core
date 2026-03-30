@@ -65,7 +65,13 @@ echo "[step] asserting release artifacts"
 test -d .release/Hyprspace.app
 test -f .release/hyprspace
 test -x .release/libexec/hyprspace-init/hyprspace-init
+test -x .release/libexec/hyprspace-init/hyprspace-notify-menubar
+test -x .release/libexec/hyprspace-init/hyprspace-set-wallpaper
+test -x .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init/hyprspace-notify-menubar
+test -x .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init/hyprspace-set-wallpaper
 test -x .release/Hyprspace-v${build_version}/libexec/hyprspace-init/hyprspace-init
+test -x .release/Hyprspace-v${build_version}/libexec/hyprspace-init/hyprspace-notify-menubar
+test -x .release/Hyprspace-v${build_version}/libexec/hyprspace-init/hyprspace-set-wallpaper
 test -f .release/artifacts/gfx/wallpaper-default.jpg
 test -f .release/Hyprspace-v${build_version}/artifacts/gfx/wallpaper-default.jpg
 test -f .release/Hyprspace.app/Contents/Resources/Assets.car

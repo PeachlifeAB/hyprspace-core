@@ -109,6 +109,7 @@ ls -l "$test_wallpaper"
 
 mkdir -p "$fake_install_root/libexec"
 cp -R "$root_dir/libexec/hyprspace-init" "$fake_runtime_dir"
+"$root_dir/scripts/internal/build-init-helpers.sh" "$fake_runtime_dir"
 chmod +x "$fake_runtime_dir/hyprspace-init" "$fake_runtime_dir/apply-init-selections.sh"
 cp -R "$root_dir/scripts" "$fake_install_root/scripts"
 cp -R "$root_dir/artifacts" "$fake_install_root/artifacts"
