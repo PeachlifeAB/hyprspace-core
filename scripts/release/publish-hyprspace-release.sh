@@ -148,8 +148,11 @@ commit_if_needed() {
 }
 
 commit_version_file() {
-    git add version.txt
+    git add version.txt CHANGELOG.md
     git commit -m "Release $TAG"
+}
+
+push_release_commit() {
     git push origin main
 }
 
@@ -219,14 +222,19 @@ PATCH_BIN="$(command -v gpatch)" bash scripts/patch/validate-patches.sh
 step "refreshing patched AeroSpace checkout from patch truth"
 ./scripts/patch/refresh-workspace.sh
 
+step "committing release version"
+echo "$NEW_VERSION" >version.txt
+commit_version_file
+
 step "checking install surface"
 bash tests/test-hyprspace-install-surface.sh
 
 step "building and validating release artifact"
 before_zip_boundary="$(capture_zip_boundary)"
 print_release_boundary before-build "pre-rebuild snapshot only; existing .release contents may be stale until the build step below replaces them"
-RUN_INTEGRATION_TESTS=1 /bin/bash tests/test-hyprspace-release-build.sh
+RUN_INTEGRATION_TESTS=1 /bin/bash tests/test-hyprspace-release-build.sh --build-version "$BUILD_VERSION"
 print_release_boundary after-build "fresh post-build artifact boundary"
+test -f "$ZIP_PATH" || die "release build did not produce expected artifact $ZIP_PATH"
 after_zip_boundary="$(capture_zip_boundary)"
 if [ "$before_zip_boundary" = "$after_zip_boundary" ]; then
     die "release build step did not refresh $ZIP_PATH"
@@ -246,9 +254,8 @@ bash tests/test-hyprspace-public-surface-docs.sh
 step "syncing public releases repo docs"
 sync_repo_if_needed "$RELEASES_DIR" "releases" "docs: sync public release surface" README.md LEGAL.md LICENSE
 
-step "committing release version"
-echo "$NEW_VERSION" >version.txt
-commit_version_file
+step "pushing release commit"
+push_release_commit
 
 step "tagging source repo"
 git tag -a "$TAG" -m "$TAG"

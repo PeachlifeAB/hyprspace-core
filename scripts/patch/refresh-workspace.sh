@@ -73,7 +73,7 @@ fi
 echo "======================================================"
 echo "🔄 Refreshing AeroSpace workspace to $LATEST_TAG"
 echo "======================================================"
-git checkout main 2>/dev/null || true
+git checkout main >/dev/null 2>&1 || true
 git reset --hard "$LATEST_TAG"
 git clean -fd
 

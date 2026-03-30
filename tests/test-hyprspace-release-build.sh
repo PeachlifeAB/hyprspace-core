@@ -23,6 +23,29 @@ ls -ld "$checkout_dir/.release" 2>/dev/null || true
 source "$root_dir/tests/_common.sh"
 
 declare -a HYPRSPACE_TEST_CLEANUP_PATHS=()
+requested_build_version=""
+
+while test $# -gt 0; do
+    case "$1" in
+    --build-version)
+        test $# -ge 2 || {
+            echo "error: --build-version requires a value" >&2
+            exit 1
+        }
+        requested_build_version="$2"
+        shift 2
+        ;;
+    --*)
+        echo "error: unknown option: $1" >&2
+        exit 1
+        ;;
+    *)
+        echo "error: unexpected argument: $1" >&2
+        exit 1
+        ;;
+    esac
+done
+
 if [[ "${RUN_INTEGRATION_TESTS:-0}" != "1" ]]; then
     echo "[error] RUN_INTEGRATION_TESTS=1 is required for test-hyprspace-release-build.sh" >&2
     exit 1
@@ -30,8 +53,14 @@ fi
 log_dir="$root_dir/log/build"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 log_file="$log_dir/${timestamp}-hyprspace-release-build.log"
-build_version="$(cat "$root_dir/version.txt")"
+version_txt_build_version="$(cat "$root_dir/version.txt")"
+build_version="${requested_build_version:-$version_txt_build_version}"
 
+if [ -n "$requested_build_version" ] && [ "$requested_build_version" != "$version_txt_build_version" ]; then
+    printf '%s\n' "[entry] overriding version.txt build version with requested version"
+fi
+
+printf '%s\n' "[entry] version.txt_build_version=$version_txt_build_version"
 printf '%s\n' "[entry] build_version=$build_version"
 printf '%s\n' "[entry] listing concrete zip target"
 ls -ld "$checkout_dir/.release" "$checkout_dir/.release/Hyprspace-v${build_version}.zip" 2>/dev/null || true
@@ -60,6 +89,12 @@ if [[ "$sign_id" != "-" ]] && ! security find-identity -v -p codesigning | grep 
     sign_id="-"
 fi
 ./script/internal/build-release.sh --build-version "$build_version" --skip-docs --skip-shell-parser --allow-dirty --codesign-identity "$sign_id"
+
+expected_zip="$checkout_dir/.release/Hyprspace-v$build_version.zip"
+test -f "$expected_zip" || {
+    echo "[error] missing built zip: $expected_zip" >&2
+    exit 1
+}
 
 echo "[step] asserting release artifacts"
 test -d .release/Hyprspace.app
@@ -106,9 +141,12 @@ for pair in \
 done
 
 echo "[step] checking production version output"
-output="$(.release/hyprspace --version 2>&1)"
-printf '%s\n' "$output"
-test "$output" = "Hyprspace v${build_version}"
+version_output="$(.release/hyprspace --version 2>&1)"
+printf '%s\n' "$version_output"
+test "$version_output" = "Hyprspace v${build_version}" || {
+    echo "[error] version output mismatch: expected 'Hyprspace v${build_version}', got '$version_output'" >&2
+    exit 1
+}
 
 echo "[step] checking packaged init wrapper dispatch"
 output="$(HYPRSPACE_INIT_TEST_MODE=runtime .release/hyprspace init 2>&1)"
