@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# SketchyBar configuration.
+# Documentation: https://felixkratz.github.io/SketchyBar
+# Project: https://github.com/FelixKratz/SketchyBar
+
 PLUGIN_DIR="$CONFIG_DIR/plugins"
 
 if [ -n "${HYPRSPACE_BIN:-}" ]; then

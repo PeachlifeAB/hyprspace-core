@@ -204,6 +204,9 @@ verify_release_body() {
 step "preflight"
 require_cmd curl
 
+step "refreshing patched AeroSpace checkout from patch truth"
+./scripts/patch/refresh-workspace.sh
+
 step "syncing live release patch truth"
 sync_live_release_patch_truth
 
@@ -218,9 +221,6 @@ fi
 
 step "validating patch stack"
 PATCH_BIN="$(command -v gpatch)" bash scripts/patch/validate-patches.sh
-
-step "refreshing patched AeroSpace checkout from patch truth"
-./scripts/patch/refresh-workspace.sh
 
 step "committing release version"
 echo "$NEW_VERSION" >version.txt

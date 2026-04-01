@@ -45,7 +45,13 @@ has_upstream() {
 assert_clean_repo() {
     local repo_path="$1"
     local label="$2"
-    if [ -n "$(git -C "$repo_path" status --short)" ]; then
+    local dirty
+    if [ "$repo_path" = "." ]; then
+        dirty="$(git -C "$repo_path" status --short | grep -v '^ M CHANGELOG\.md$' | grep -v '^M  CHANGELOG\.md$' || true)"
+    else
+        dirty="$(git -C "$repo_path" status --short)"
+    fi
+    if [ -n "$dirty" ]; then
         git -C "$repo_path" status --short >&2
         die "$label repo has uncommitted changes; clean $repo_path before publish"
     fi

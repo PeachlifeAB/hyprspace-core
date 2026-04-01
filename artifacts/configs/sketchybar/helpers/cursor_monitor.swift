@@ -1,14 +1,11 @@
 #!/usr/bin/swift
 
 import AppKit
-import CoreGraphics
 import Foundation
 
-let bouncerThreshold: CGFloat = 5.0
-let bounceTargetOffset: CGFloat = 8.0
-let hideThreshold: CGFloat = 3.0
-let showThreshold: CGFloat = 40.0
-let pollInterval: TimeInterval = 0.1
+let hideThreshold: CGFloat = 8.0
+let showThreshold: CGFloat = 24.0
+let pollInterval: TimeInterval = 0.03
 
 func sketchybarTrigger(_ name: String) {
     let process = Process()
@@ -20,50 +17,31 @@ func sketchybarTrigger(_ name: String) {
     process.waitUntilExit()
 }
 
-func isCommandPressed() -> Bool {
-    NSEvent.modifierFlags.contains(.command)
+func screenContainingMouse(_ position: NSPoint) -> NSScreen? {
+    for screen in NSScreen.screens {
+        if screen.frame.contains(position) {
+            return screen
+        }
+    }
+    return NSScreen.main ?? NSScreen.screens.first
 }
 
-func checkAccessibilityPermissions() -> Bool {
-    let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-    return AXIsProcessTrustedWithOptions(options)
-}
-
-func mainScreenTop() -> CGFloat? {
-    guard let screen = NSScreen.main else { return nil }
+func screenTop(for position: NSPoint) -> CGFloat? {
+    guard let screen = screenContainingMouse(position) else { return nil }
     return screen.frame.origin.y + screen.frame.size.height
-}
-
-func bounceCursor(current: NSPoint, screenTop: CGFloat) {
-    guard let screen = NSScreen.main else { return }
-
-    let screenHeight = screen.frame.size.height
-    let screenOriginY = screen.frame.origin.y
-    let targetCocoaY = screenTop - bounceTargetOffset
-    let targetCGY = (screenOriginY + screenHeight) - targetCocoaY
-
-    CGWarpMouseCursorPosition(CGPoint(x: current.x, y: targetCGY))
-}
-
-let hasAccessibility = checkAccessibilityPermissions()
-if !hasAccessibility {
-    fputs("cursor_monitor: Accessibility permission not granted; bouncer disabled.\n", stderr)
 }
 
 var barHidden = false
 
 while true {
-    guard let top = mainScreenTop() else {
+    let position = NSEvent.mouseLocation
+
+    guard let top = screenTop(for: position) else {
         Thread.sleep(forTimeInterval: pollInterval)
         continue
     }
 
-    let position = NSEvent.mouseLocation
     let distanceFromTop = top - position.y
-
-    if hasAccessibility, distanceFromTop <= bouncerThreshold, !isCommandPressed() {
-        bounceCursor(current: position, screenTop: top)
-    }
 
     if !barHidden {
         if distanceFromTop <= hideThreshold {
