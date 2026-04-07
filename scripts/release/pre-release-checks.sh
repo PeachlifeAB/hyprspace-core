@@ -47,9 +47,9 @@ assert_clean_repo() {
     local label="$2"
     local dirty
     if [ "$repo_path" = "." ]; then
-        dirty="$(git -C "$repo_path" status --short | grep -v '^ M CHANGELOG\.md$' | grep -v '^M  CHANGELOG\.md$' || true)"
+        dirty="$(git -c color.status=false -C "$repo_path" status --short | grep -v '^ M CHANGELOG\.md$' | grep -v '^M  CHANGELOG\.md$' || true)"
     else
-        dirty="$(git -C "$repo_path" status --short)"
+        dirty="$(git -c color.status=false -C "$repo_path" status --short)"
     fi
     if [ -n "$dirty" ]; then
         git -C "$repo_path" status --short >&2
@@ -78,7 +78,7 @@ assert_repo_push_safe() {
     local label="$2"
     local branch ahead behind counts
     branch="$(current_branch "$repo_path")"
-    counts="$(git -C "$repo_path" rev-list --left-right --count "HEAD...@{u}")"
+    counts="$(git -c color.ui=never -C "$repo_path" rev-list --left-right --count "HEAD...@{u}")"
     ahead="${counts%%$'\t'*}"
     behind="${counts##*$'\t'}"
 
@@ -99,7 +99,7 @@ assert_publish_version_available() {
     local prev_version lower
 
     git fetch --tags origin >/dev/null 2>&1 || true
-    prev_version="$(git tag --list "${HYPRSPACE_TAG_PREFIX}*" --sort=-version:refname | head -1 | sed "s/^${HYPRSPACE_TAG_PREFIX}//")"
+    prev_version="$(git -c color.ui=never tag --list "${HYPRSPACE_TAG_PREFIX}*" --sort=-version:refname | head -1 | sed "s/^${HYPRSPACE_TAG_PREFIX}//")"
     if [ -n "$prev_version" ]; then
         lower="$(printf '%s\n%s' "$prev_version" "$new_version" | sort -V | head -1)"
         if [ "$lower" != "$prev_version" ] || [ "$prev_version" = "$new_version" ]; then

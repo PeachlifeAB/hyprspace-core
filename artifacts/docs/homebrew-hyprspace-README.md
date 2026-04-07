@@ -24,7 +24,7 @@ brew untap PeachlifeAB/hyprspace
 
 ## Public release surfaces
 
-The Hyprspace source repository is private. Public release artifacts and public-facing documentation live in the following places:
+The Hyprspace source repository is open-source at `PeachlifeAB/hyprspace-core`. Public release artifacts and public-facing documentation live in the following places:
 
 - Releases and manual downloads: https://github.com/PeachlifeAB/hyprspace-releases
 - Legal disclosure: https://github.com/PeachlifeAB/hyprspace-releases/blob/main/LEGAL.md

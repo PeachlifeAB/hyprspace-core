@@ -4,21 +4,19 @@
 
 Hyprspace is a fork of AeroSpace by Nikita Bobko and remains based on upstream AeroSpace source plus Hyprspace patches. The combined Hyprspace public license text is published in this repository as `LICENSE`, and each release zip also bundles `legal/LICENSE.txt`.
 
-The Hyprspace source and patch-control repository is private at `PeachlifeAB/hyprspace-core`. Public release artifacts are published in `PeachlifeAB/hyprspace-releases`, and the public Homebrew tap lives in `PeachlifeAB/brew`.
+The open-source Hyprspace source and patch-control repository is available at `PeachlifeAB/hyprspace-core`. Public release artifacts are published in `PeachlifeAB/hyprspace-releases`, and the public Homebrew tap lives in `PeachlifeAB/brew`.
 
 ## Third-Party Dependencies
 
-Hyprspace bundles the same third-party dependencies as AeroSpace. Each published release zip includes `legal/third-party-license/` with the bundled dependency license texts. A summary is maintained in the private-source `artifacts/docs/legal.md` and mirrored in release artifacts for offline reading.
+Hyprspace bundles the same third-party dependencies as AeroSpace. Each published release zip includes `legal/third-party-license/` with the bundled dependency license texts. A summary is maintained in `PeachlifeAB/hyprspace-core` `artifacts/docs/legal.md` and mirrored in release artifacts for offline reading.
 
-## Code Signing and Notarization
+## Code Signing 
 
-Hyprspace releases are currently not code-signed or notarized by Apple.
-
-When installed via the public Homebrew cask, the cask postflight removes the macOS quarantine attribute from the staged CLI binary and installed app bundle. Users who prefer to verify the release artifact directly can compare the downloaded zip against the published Homebrew cask SHA256 and GitHub release asset.
+Hyprspace releases are code-signed.
 
 ## Public Surfaces
 
-External users and auditors can inspect the following public surfaces without access to the private source repository:
+External users and auditors can inspect the open-source repository at `PeachlifeAB/hyprspace-core` directly. Additionally, the following public surfaces are available for quick reference and release management:
 
 - `README.md` in this repository for public install and manual-download guidance
 - `LEGAL.md` in this repository for public disclosure

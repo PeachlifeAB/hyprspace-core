@@ -366,7 +366,7 @@ repo_state_row() {
 
     local branch dirty local_hash local_date local_subject upstream remote_hash remote_date remote_subject fetch_status
     branch="$(git -C "$repo" symbolic-ref --quiet --short HEAD 2>/dev/null || echo DETACHED)"
-    if [ -n "$(git -C "$repo" status --short 2>/dev/null)" ]; then
+    if [ -n "$(git -c color.status=false -C "$repo" status --short 2>/dev/null)" ]; then
         dirty='dirty'
     else
         dirty='clean'

@@ -2,7 +2,7 @@
 
 This repository is the public release surface for Hyprspace.
 
-- Source code repository: private (`PeachlifeAB/hyprspace-core`)
+- Source code repository: (`PeachlifeAB/hyprspace-core`)
 - Public Homebrew tap: https://github.com/PeachlifeAB/brew
 - Legal disclosure: ./LEGAL.md
 - License: ./LICENSE
@@ -20,4 +20,4 @@ Versioned release zips are published on the GitHub Releases page for this reposi
 
 ## Notes
 
-Hyprspace releases are currently not code-signed or notarized by Apple. See `LEGAL.md` for the current disclosure and audit-facing details.
+Hyprspace releases are code-signed. See `LEGAL.md` for the current disclosure and audit-facing details.

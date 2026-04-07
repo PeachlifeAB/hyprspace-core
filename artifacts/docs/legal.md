@@ -6,7 +6,7 @@ Hyprspace is a fork of [AeroSpace](https://github.com/nikitabobko/AeroSpace) by 
 
 The same public license text is bundled in every Hyprspace release artifact at `legal/LICENSE.txt`.
 
-The source and patch-control repository is private at `PeachlifeAB/hyprspace-core`. Public release artifacts are published separately to `PeachlifeAB/hyprspace-releases`, and the public Homebrew tap lives at `PeachlifeAB/brew`.
+The open-source source and patch-control repository is available at `PeachlifeAB/hyprspace-core`. Public release artifacts are published separately to `PeachlifeAB/hyprspace-releases`, and the public Homebrew tap lives at `PeachlifeAB/brew`.
 
 ## Third-Party Dependencies
 
@@ -23,13 +23,9 @@ Hyprspace bundles the same third-party dependencies as AeroSpace. The full inven
 
 Full license texts for each dependency are available in `legal/third-party-license/` inside the release zip.
 
-## Code Signing and Notarization
+## Code Signing
 
-**Hyprspace releases are currently not code-signed or notarized by Apple.**
-
-When installing via Homebrew cask, the postflight step removes the macOS quarantine attribute (`com.apple.quarantine`) from the app bundle and CLI binary so they can run without Gatekeeper prompting. Users who prefer to verify the binary manually can inspect the release zip SHA256 checksum published alongside each GitHub release.
-
-This status will be updated in these docs if notarization is added in a future release.
+Hyprspace releases are code-signed.
 
 ## Release Artifact Contents
 

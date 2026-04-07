@@ -182,7 +182,7 @@ sync_repo_if_needed() {
     fi
 
     git -C "$repo_path" fetch --quiet origin "$branch" >/dev/null 2>&1 || die "$label repo failed to fetch origin/$branch"
-    ahead_count="$(git -C "$repo_path" rev-list --count "@{u}..HEAD")"
+    ahead_count="$(git -c color.ui=never -C "$repo_path" rev-list --count "@{u}..HEAD")"
     if [ "$ahead_count" -gt 0 ]; then
         git -C "$repo_path" push
     else

@@ -1,3 +1,4 @@
+# Summary: Strip ANSI color escapes from grep output in generate.sh so subcommand descriptions render without escape sequences.
 diff --git a/generate.sh b/generate.sh
 --- a/generate.sh
 +++ b/generate.sh

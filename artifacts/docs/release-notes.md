@@ -20,4 +20,4 @@ All notable changes for this release are documented using the Keep a Changelog f
 - License: {{RELEASES_LICENSE_URL}}
 
 ## Notes
-- Hyprspace releases are currently not code-signed or notarized by Apple.
+- Hyprspace releases are code-signed.
