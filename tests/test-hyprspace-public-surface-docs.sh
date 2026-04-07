@@ -9,7 +9,7 @@ log_dir="$root_dir/log/tests"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 log_file="$log_dir/${timestamp}-hyprspace-public-surface-docs.log"
 generated_cask="$root_dir/AeroSpace/.release/hyprspace.rb"
-tap_repo="$root_dir/../homebrew-hyprspace"
+tap_repo="$root_dir/../../brew"
 releases_repo="$root_dir/../hyprspace-releases"
 
 mkdir -p "$log_dir"

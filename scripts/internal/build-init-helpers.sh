@@ -59,6 +59,7 @@ install_helper() {
 helpers=(
     hyprspace-notify-menubar
     hyprspace-set-wallpaper
+    hyprspace-get-wallpaper
 )
 
 for helper in "${helpers[@]}"; do

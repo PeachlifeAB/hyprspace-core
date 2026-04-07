@@ -18,6 +18,8 @@ FAST_TESTS=(
     tests/test-hyprspace-init-notty.sh
     tests/test-hyprspace-init-tty-runtime.sh
     tests/test-hyprspace-init-required.sh
+    tests/test-hyprspace-update-surface.sh
+    tests/test-hyprspace-deinit-surface.sh
 )
 
 INTEGRATION_TESTS=(

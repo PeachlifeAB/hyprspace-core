@@ -1,6 +1,7 @@
 hyprspace/cli-identity-and-root-hash.patch
 hyprspace/runtime-identity-separation.patch
 hyprspace/install-surface-identity.patch
+hyprspace/fix-grep-ansi-in-generate.patch
 hyprspace/local-release-build-proof.patch
 hyprspace/helium-style-versioning.patch
 hyprspace/app-menu-command.patch

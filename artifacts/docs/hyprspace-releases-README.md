@@ -3,7 +3,7 @@
 This repository is the public release surface for Hyprspace.
 
 - Source code repository: private (`PeachlifeAB/hyprspace-core`)
-- Public Homebrew tap: https://github.com/PeachlifeAB/homebrew-hyprspace
+- Public Homebrew tap: https://github.com/PeachlifeAB/brew
 - Legal disclosure: ./LEGAL.md
 - License: ./LICENSE
 

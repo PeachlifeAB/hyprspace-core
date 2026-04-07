@@ -349,7 +349,7 @@ diff --git a/generate.sh b/generate.sh
 diff --git a/install-from-sources.sh b/install-from-sources.sh
 --- a/install-from-sources.sh
 +++ b/install-from-sources.sh
-@@ -3,28 +3,87 @@
+@@ -3,28 +3,89 @@
  source ./script/setup.sh
  
  rebuild=1
@@ -424,6 +424,8 @@ diff --git a/install-from-sources.sh b/install-from-sources.sh
 +    cp ./.release/hyprspace "$local_prefix/bin/hyprspace"
 +    cp ./.release/libexec/hyprspace-cli "$local_prefix/libexec/hyprspace-cli"
 +    cp -R ./.release/libexec/hyprspace-init "$local_prefix/libexec/hyprspace-init"
++    cp -R ./.release/libexec/hyprspace-update "$local_prefix/libexec/hyprspace-update"
++    cp -R ./.release/libexec/hyprspace-deinit "$local_prefix/libexec/hyprspace-deinit"
 +    cp -R ./.release/artifacts "$local_prefix/artifacts"
 +    mkdir -p "$local_prefix/share/zsh/site-functions" "$local_prefix/share/fish/vendor_completions.d" "$local_prefix/etc/bash_completion.d"
 +    cp ./.release/Hyprspace-v"$(plutil -extract CFBundleShortVersionString raw ./.release/Hyprspace.app/Contents/Info.plist)"/shell-completion/zsh/_hyprspace "$local_prefix/share/zsh/site-functions/_hyprspace"
@@ -628,7 +630,7 @@ diff --git a/script/internal/build-release.sh b/script/internal/build-release.sh
 new file mode 100755
 --- /dev/null
 +++ b/script/internal/build-release.sh
-@@ -0,0 +1,451 @@
+@@ -0,0 +1,467 @@
 +#!/bin/bash
 +cd "$(dirname "$0")/../.."
 +source ./script/setup.sh
@@ -937,6 +939,11 @@ new file mode 100755
 +    exec "$root_dir/libexec/hyprspace-update/hyprspace-update" "$@"
 +fi
 +
++if [ "${1:-}" = "deinit" ]; then
++    shift
++    exec "$root_dir/libexec/hyprspace-deinit/hyprspace-deinit" "$@"
++fi
++
 +exec "$root_dir/libexec/hyprspace-cli" "$@"
 +EOF
 +chmod +x .release/hyprspace
@@ -946,21 +953,25 @@ new file mode 100755
 +
 +cp -r "$root_dir/libexec/hyprspace-init" .release/libexec/hyprspace-init
 +cp -r "$root_dir/libexec/hyprspace-update" .release/libexec/hyprspace-update
++cp -r "$root_dir/libexec/hyprspace-deinit" .release/libexec/hyprspace-deinit
 +cp .release/libexec/hyprspace-cli .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-cli
 +cp -r "$root_dir/libexec/hyprspace-init" .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init
 +cp -r "$root_dir/libexec/hyprspace-update" .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-update
++cp -r "$root_dir/libexec/hyprspace-deinit" .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-deinit
 +"$root_dir/scripts/internal/build-init-helpers.sh" \
 +    .release/libexec/hyprspace-init \
 +    .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init
 +cp -R "$root_dir/scripts"/. .release/Hyprspace.app/Contents/Resources/scripts/
 +cp -R "$root_dir/artifacts"/. .release/Hyprspace.app/Contents/Resources/artifacts/
 +cp -r ./docs/config-examples .release/Hyprspace.app/Contents/Resources/AeroSpace/docs/config-examples
-+chmod +x .release/libexec/hyprspace-init/hyprspace-init .release/libexec/hyprspace-init/apply-init-selections.sh .release/libexec/hyprspace-update/hyprspace-update
++chmod +x .release/libexec/hyprspace-init/hyprspace-init .release/libexec/hyprspace-init/apply-init-selections.sh .release/libexec/hyprspace-update/hyprspace-update .release/libexec/hyprspace-deinit/hyprspace-deinit .release/libexec/hyprspace-deinit/apply-deinit-selections.sh
 +chmod +x \
 +    .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-cli \
 +    .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init/hyprspace-init \
 +    .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init/apply-init-selections.sh \
-+    .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-update/hyprspace-update
++    .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-update/hyprspace-update \
++    .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-deinit/hyprspace-deinit \
++    .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-deinit/apply-deinit-selections.sh
 +cp -r "$root_dir/scripts" .release/scripts
 +cp -r "$root_dir/artifacts" .release/artifacts
 +mkdir -p .release/AeroSpace/docs
@@ -973,6 +984,7 @@ new file mode 100755
 +################
 +
 +codesign -f -s "$codesign_identity" .release/libexec/hyprspace-cli
++codesign -f -s "$codesign_identity" .release/libexec/hyprspace-init/hyprspace-get-wallpaper
 +codesign -f -s "$codesign_identity" .release/libexec/hyprspace-init/hyprspace-notify-menubar
 +codesign -f -s "$codesign_identity" .release/libexec/hyprspace-init/hyprspace-set-wallpaper
 +codesign -f -s "$codesign_identity" .release/Hyprspace.app
@@ -989,9 +1001,11 @@ new file mode 100755
 +        printf '%s\n' .release/Hyprspace.app/Contents/Resources/libexec
 +        printf '%s\n' .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-cli
 +        list_tree_with_prefix "$root_dir/libexec/hyprspace-init" .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init
++        printf '%s\n' .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init/hyprspace-get-wallpaper
 +        printf '%s\n' .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init/hyprspace-notify-menubar
 +        printf '%s\n' .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-init/hyprspace-set-wallpaper
 +        list_tree_with_prefix "$root_dir/libexec/hyprspace-update" .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-update
++        list_tree_with_prefix "$root_dir/libexec/hyprspace-deinit" .release/Hyprspace.app/Contents/Resources/libexec/hyprspace-deinit
 +        list_tree_with_prefix "$root_dir/scripts" .release/Hyprspace.app/Contents/Resources/scripts
 +        list_tree_with_prefix "$root_dir/artifacts" .release/Hyprspace.app/Contents/Resources/artifacts
 +        printf '%s\n' .release/Hyprspace.app/Contents/Resources/AeroSpace
@@ -1028,6 +1042,7 @@ new file mode 100755
 +
 +check-universal-binary .release/Hyprspace.app/Contents/MacOS/Hyprspace
 +check-universal-binary .release/libexec/hyprspace-cli
++check-universal-binary .release/libexec/hyprspace-init/hyprspace-get-wallpaper
 +check-universal-binary .release/libexec/hyprspace-init/hyprspace-notify-menubar
 +check-universal-binary .release/libexec/hyprspace-init/hyprspace-set-wallpaper
 +
@@ -1054,10 +1069,13 @@ new file mode 100755
 +cp -r .release/libexec/hyprspace-cli ".release/Hyprspace-v$build_version/libexec/hyprspace-cli"
 +cp -r .release/libexec/hyprspace-init ".release/Hyprspace-v$build_version/libexec/hyprspace-init"
 +cp -r .release/libexec/hyprspace-update ".release/Hyprspace-v$build_version/libexec/hyprspace-update"
++cp -r .release/libexec/hyprspace-deinit ".release/Hyprspace-v$build_version/libexec/hyprspace-deinit"
 +chmod +x \
 +    ".release/Hyprspace-v$build_version/libexec/hyprspace-init/hyprspace-init" \
 +    ".release/Hyprspace-v$build_version/libexec/hyprspace-init/apply-init-selections.sh" \
-+    ".release/Hyprspace-v$build_version/libexec/hyprspace-update/hyprspace-update"
++    ".release/Hyprspace-v$build_version/libexec/hyprspace-update/hyprspace-update" \
++    ".release/Hyprspace-v$build_version/libexec/hyprspace-deinit/hyprspace-deinit" \
++    ".release/Hyprspace-v$build_version/libexec/hyprspace-deinit/apply-deinit-selections.sh"
 +if [ ! -x ".release/Hyprspace-v$build_version/libexec/hyprspace-init/hyprspace-init" ]; then
 +    echo "packaged hyprspace-init lost execute permission" >&2
 +    exit 1

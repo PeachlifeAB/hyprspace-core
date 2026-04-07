@@ -12,9 +12,9 @@ timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 log_file="$log_dir/${timestamp}-hyprspace-publish-pre-release-checks-behind-guard.log"
 workspace_root="$(make_temp_dir)"
 source_repo="$workspace_root/hyprspace-core"
-tap_repo="$workspace_root/homebrew-hyprspace"
+tap_repo="$workspace_root/brew"
 releases_repo="$workspace_root/hyprspace-releases"
-tap_remote="$workspace_root/homebrew-hyprspace-remote.git"
+tap_remote="$workspace_root/brew-remote.git"
 
 mkdir -p "$log_dir"
 register_cleanup_path "$workspace_root"
@@ -50,7 +50,7 @@ git -C "$releases_repo" -c user.name='Test' -c user.email='test@example.com' com
 git -C "$releases_repo" push -u origin main >/dev/null 2>&1
 
 echo "[step] advance remote tap so local tap is behind"
-remote_worktree="$workspace_root/homebrew-hyprspace-remote-worktree"
+remote_worktree="$workspace_root/brew-remote-worktree"
 git clone "$tap_remote" "$remote_worktree" >/dev/null 2>&1
 printf '%s\n' '# tap updated remotely' >"$remote_worktree/README.md"
 git -C "$remote_worktree" add README.md

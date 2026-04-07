@@ -114,6 +114,7 @@ else
     rm -rf "$legacy_root/libexec/hyprspace-cli"
     rm -rf "$legacy_root/libexec/hyprspace-init"
     rm -rf "$legacy_root/libexec/hyprspace-update"
+    rm -rf "$legacy_root/libexec/hyprspace-deinit"
     rm -rf "$legacy_root/scripts/internal/setup-dependencies.sh" 2>/dev/null || true
     rm -rf "$legacy_root/artifacts/hyprspace" 2>/dev/null || true
 fi

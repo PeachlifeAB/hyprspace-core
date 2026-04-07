@@ -11,6 +11,7 @@
 # https://nikitabobko.github.io/AeroSpace/commands
 
 config-version = 2
+start-at-login = true
 
 # {{#borders}}
 after-startup-command = [
@@ -111,4 +112,8 @@ run = ["layout floating"]
 
 [[on-window-detected]]
 if.app-id = "com.bitwarden.desktop"
+run = ["layout floating"]
+
+[[on-window-detected]]
+if.app-id = "com.apple.QuickTimePlayerX"
 run = ["layout floating"]

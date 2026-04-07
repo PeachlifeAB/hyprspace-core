@@ -17,11 +17,10 @@ source "$root_dir/scripts/internal/init-human-log.sh"
 init_human_log "$root_dir" install cleanup-hyprspace
 source "$root_dir/scripts/verify/repo-state-table.sh"
 
-SNAPSHOT_ROOT="$root_dir/../snapshots/Hyprspace/local-configs"
+BACKUP_ZIP="$HOME/hyprspace-backup.zip"
+BACKUP_STAGING_DIR="$(mktemp -d)"
 HYPRSPACE_CONFIG_DIR="$HOME/.config/hyprspace"
-HYPRSPACE_CONFIG_BACKUP_DIR="$SNAPSHOT_ROOT/hyprspace-$(date -u +%Y%m%dT%H%M%SZ)"
 SKETCHYBAR_CONFIG_DIR="$HOME/.config/sketchybar"
-SKETCHYBAR_CONFIG_BACKUP_DIR="$SNAPSHOT_ROOT/sketchybar-$(date -u +%Y%m%dT%H%M%SZ)"
 
 MANAGED_PROCESSES=(Hyprspace AeroSpace sketchybar borders)
 
@@ -33,7 +32,7 @@ Usage: scripts/install/cleanup-hyprspace.sh [--apply] [--remove-tap] [--reset-ma
 
 Dry-run by default. Shows the Hyprspace traces that would be removed.
 Normal cleanup removes all proven Hyprspace traces.
-On --apply, the script backs up `~/.config/hyprspace` before deleting it.
+On --apply, the script backs up configs to ~/hyprspace-backup.zip before deleting them.
 
 Options:
   --apply       Actually remove discovered traces
@@ -86,36 +85,46 @@ print_cleanup_state() {
     print_current_system_artifact_state "$label"
 }
 
-backup_hyprspace_config() {
-    if [ ! -d "$HYPRSPACE_CONFIG_DIR" ]; then
-        note "[info] config backup: $HYPRSPACE_CONFIG_DIR is absent"
+stage_config_for_backup() {
+    local src_dir="$1"
+    local label="$2"
+
+    if [ ! -d "$src_dir" ]; then
+        note "[info] config backup: $src_dir is absent"
         return
     fi
 
-    note "[info] config backup source: $HYPRSPACE_CONFIG_DIR"
-    note "[info] config backup destination: $HYPRSPACE_CONFIG_BACKUP_DIR"
+    note "[info] staging $label config for backup: $src_dir"
     if [ "$APPLY" -eq 1 ]; then
-        mkdir -p "$HYPRSPACE_CONFIG_BACKUP_DIR"
-        cp -R "$HYPRSPACE_CONFIG_DIR/." "$HYPRSPACE_CONFIG_BACKUP_DIR/"
+        local dest="$BACKUP_STAGING_DIR/$label"
+        mkdir -p "$dest"
+        cp -R "$src_dir/." "$dest/"
     else
-        note "[dry-run] would back up $HYPRSPACE_CONFIG_DIR to $HYPRSPACE_CONFIG_BACKUP_DIR"
+        note "[dry-run] would stage $src_dir as $label"
     fi
 }
 
-backup_sketchybar_surface() {
-    if [ ! -d "$SKETCHYBAR_CONFIG_DIR" ]; then
-        note "[info] sketchybar backup: $SKETCHYBAR_CONFIG_DIR is absent"
+create_backup_zip() {
+    if [ "$APPLY" -ne 1 ]; then
+        note "[dry-run] would create $BACKUP_ZIP"
         return
     fi
 
-    note "[info] sketchybar backup source: $SKETCHYBAR_CONFIG_DIR"
-    note "[info] sketchybar backup destination: $SKETCHYBAR_CONFIG_BACKUP_DIR"
-    if [ "$APPLY" -eq 1 ]; then
-        mkdir -p "$SKETCHYBAR_CONFIG_BACKUP_DIR"
-        cp -R "$SKETCHYBAR_CONFIG_DIR/." "$SKETCHYBAR_CONFIG_BACKUP_DIR/"
-    else
-        note "[dry-run] would back up $SKETCHYBAR_CONFIG_DIR to $SKETCHYBAR_CONFIG_BACKUP_DIR"
+    # Only create if there's something to back up
+    if [ -z "$(ls -A "$BACKUP_STAGING_DIR" 2>/dev/null)" ]; then
+        note "[info] nothing to back up, skipping zip creation"
+        return
     fi
+
+    # Remove any previous backup zip
+    rm -f "$BACKUP_ZIP"
+
+    note "[info] creating backup archive: $BACKUP_ZIP"
+    (cd "$BACKUP_STAGING_DIR" && zip -rq "$BACKUP_ZIP" .)
+    note "[info] backup saved to $BACKUP_ZIP"
+
+    # Clean up staging dir
+    rm -rf "$BACKUP_STAGING_DIR"
 }
 
 delete_path() {
@@ -380,20 +389,16 @@ note "== Hyprspace cleanup =="
 note "mode: $([ "$APPLY" -eq 1 ] && echo APPLY || echo DRY-RUN)"
 note "default cleanup scope: all proven Hyprspace traces, including local config artifacts after backup"
 note "reset macOS defaults: $([ "$RESET_MACOS_DEFAULTS" -eq 1 ] && echo yes || echo no)"
-note "config backup root: $SNAPSHOT_ROOT"
+note "config backup zip: $BACKUP_ZIP"
 
 print_cleanup_state pre-cleanup
 
-if [ -d "$HYPRSPACE_CONFIG_DIR" ]; then
-    backup_hyprspace_config
+if [ "${HYPRSPACE_DEINIT_SKIP_BACKUP:-0}" = "1" ]; then
+    note "[info] backup skipped (handled by hyprspace deinit)"
 else
-    note "[info] config cleanup target absent: $HYPRSPACE_CONFIG_DIR"
-fi
-
-if [ -d "$SKETCHYBAR_CONFIG_DIR" ]; then
-    backup_sketchybar_surface
-else
-    note "[info] sketchybar cleanup target absent: $SKETCHYBAR_CONFIG_DIR"
+    stage_config_for_backup "$HYPRSPACE_CONFIG_DIR" hyprspace
+    stage_config_for_backup "$SKETCHYBAR_CONFIG_DIR" sketchybar
+    create_backup_zip
 fi
 
 note "-- Runtime process cleanup --"
@@ -422,6 +427,7 @@ cleanup_brew_package formula aerospace-dev
 cleanup_brew_package formula sketchybar
 cleanup_brew_package formula borders
 cleanup_brew_tap dabvid/hyprspace
+cleanup_brew_tap FelixKratz/formulae
 
 note "-- Core app/config/install traces --"
 delete_path "/Applications/Hyprspace.app"
@@ -535,6 +541,13 @@ if [ "$AGGRESSIVE" -eq 1 ]; then
     delete_glob "$HOME_DIR/Library/Preferences/*peachlife.hyprspace*"
     delete_glob "$HOME_DIR/Library/Saved Application State/**/*hyprspace*"
     delete_glob "$HOME_DIR/Library/Saved Application State/**/*Hyprspace*"
+fi
+
+note "-- Restore menu bar visibility --"
+if [ "$APPLY" -eq 1 ]; then
+    defaults delete NSGlobalDomain _HIHideMenuBar >/dev/null 2>&1 || true
+else
+    note "[dry-run] defaults delete NSGlobalDomain _HIHideMenuBar"
 fi
 
 if [ "$RESET_MACOS_DEFAULTS" -eq 1 ]; then

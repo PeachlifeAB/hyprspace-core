@@ -1,4 +1,4 @@
-# homebrew-hyprspace
+# brew
 
 Public Homebrew tap for Hyprspace.
 

@@ -147,9 +147,9 @@ print_public_install_artifact_state() {
     print_command_state sketchybar
     print_command_state borders
     print_path_state Hyprspace.app /Applications/Hyprspace.app
-    print_path_state homebrew-hyprspace-link /opt/homebrew/bin/hyprspace
-    print_path_state homebrew-hyprspace-caskroom /opt/homebrew/Caskroom/hyprspace
-    print_path_state homebrew-hyprspace-cli "$nested_cli"
+    print_path_state brew-link /opt/homebrew/bin/hyprspace
+    print_path_state brew-caskroom /opt/homebrew/Caskroom/hyprspace
+    print_path_state brew-cli "$nested_cli"
 }
 
 print_local_install_artifact_state() {
@@ -224,10 +224,10 @@ print_current_system_artifact_state() {
     print_command_state sketchybar
     print_command_state borders
     print_path_state Hyprspace.app /Applications/Hyprspace.app
-    print_path_state homebrew-hyprspace-link /opt/homebrew/bin/hyprspace
-    print_path_state homebrew-hyprspace-caskroom "$caskroom_root"
+    print_path_state brew-link /opt/homebrew/bin/hyprspace
+    print_path_state brew-caskroom "$caskroom_root"
     if [ -n "$build_version" ]; then
-        print_path_state homebrew-hyprspace-cli "/opt/homebrew/Caskroom/hyprspace/${build_version}/Hyprspace-v${build_version}/libexec/hyprspace-cli"
+        print_path_state brew-cli "/opt/homebrew/Caskroom/hyprspace/${build_version}/Hyprspace-v${build_version}/libexec/hyprspace-cli"
     fi
     print_home_config_state "$phase" "$HOME"
     print_process_state "$phase"
@@ -408,7 +408,7 @@ print_default_repo_state_table() {
     local label="${1:-current}"
     print_repo_state_table "$label" \
         source "$repo_state_root_dir" \
-        tap "$repo_state_root_dir/../homebrew-hyprspace" \
+        tap "$repo_state_root_dir/../../brew" \
         releases "$repo_state_root_dir/../hyprspace-releases"
 }
 

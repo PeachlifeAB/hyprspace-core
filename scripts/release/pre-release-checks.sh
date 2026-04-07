@@ -9,7 +9,7 @@ source ./scripts/verify/repo-state-table.sh
 
 new_version="${1:-}"
 tag="${HYPRSPACE_TAG_PREFIX}${new_version}"
-tap_dir="../homebrew-hyprspace"
+tap_dir="../../brew"
 releases_dir="../hyprspace-releases"
 
 die() {

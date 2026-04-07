@@ -13,7 +13,7 @@ public_smoke_on_exit() {
     print_home_config_state public-smoke-home-exit "$public_init_home"
     print_repo_state_table public-smoke-final \
         source "$root_dir" \
-        tap "$root_dir/../homebrew-hyprspace" \
+        tap "$root_dir/../../brew" \
         releases "$root_dir/../hyprspace-releases"
     cleanup_paths_on_exit
 }
@@ -46,7 +46,7 @@ echo "[info] tap_readme_url=$tap_readme_url"
 echo "[info] log_file=$log_file"
 print_repo_state_table public-smoke-preflight \
     source "$root_dir" \
-    tap "$root_dir/../homebrew-hyprspace" \
+    tap "$root_dir/../../brew" \
     releases "$root_dir/../hyprspace-releases"
 print_public_install_artifact_state pre-install "$build_version"
 print_home_config_state public-smoke-home-pre "$public_init_home"

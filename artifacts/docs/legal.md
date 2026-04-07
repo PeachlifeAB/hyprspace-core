@@ -6,7 +6,7 @@ Hyprspace is a fork of [AeroSpace](https://github.com/nikitabobko/AeroSpace) by 
 
 The same public license text is bundled in every Hyprspace release artifact at `legal/LICENSE.txt`.
 
-The source and patch-control repository is private at `PeachlifeAB/hyprspace-core`. Public release artifacts are published separately to `PeachlifeAB/hyprspace-releases`, and the public Homebrew tap lives at `PeachlifeAB/homebrew-hyprspace`.
+The source and patch-control repository is private at `PeachlifeAB/hyprspace-core`. Public release artifacts are published separately to `PeachlifeAB/hyprspace-releases`, and the public Homebrew tap lives at `PeachlifeAB/brew`.
 
 ## Third-Party Dependencies
 

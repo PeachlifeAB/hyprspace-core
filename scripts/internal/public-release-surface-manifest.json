@@ -4,9 +4,9 @@
     {
       "id": "tap-readme",
       "mode": "copy",
-      "source": "artifacts/docs/homebrew-hyprspace-README.md",
-      "local_dest": "../homebrew-hyprspace/README.md",
-      "expected_local_parent": "../homebrew-hyprspace",
+      "source": "artifacts/docs/brew-README.md",
+      "local_dest": "../../brew/README.md",
+      "expected_local_parent": "../../brew",
       "public_url": "https://raw.githubusercontent.com/{tap_repo}/main/README.md"
     },
     {

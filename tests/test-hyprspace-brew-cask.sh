@@ -15,7 +15,7 @@ log_file="$log_dir/${timestamp}-hyprspace-brew-cask.log"
 build_version="$(cat "$root_dir/version.txt")"
 zip_name="Hyprspace-v${build_version}.zip"
 cask_file="$checkout_dir/.release/hyprspace.rb"
-tapped_cask_file="/opt/homebrew/Library/Taps/peachlifeab/homebrew-hyprspace/Casks/hyprspace.rb"
+tapped_cask_file="/opt/homebrew/Library/Taps/peachlifeab/brew/Casks/hyprspace.rb"
 tap_backup_dir=""
 
 mkdir -p "$log_dir"
@@ -33,7 +33,7 @@ cleanup() {
 brew_cask_on_exit() {
     print_repo_state_table brew-cask-final \
         source "$root_dir" \
-        tap "$root_dir/../homebrew-hyprspace" \
+        tap "$root_dir/../../brew" \
         releases "$root_dir/../hyprspace-releases"
     cleanup
 }
@@ -46,7 +46,7 @@ echo "[info] zip_name=$zip_name"
 echo "[info] log_file=$log_file"
 print_repo_state_table brew-cask-preflight \
     source "$root_dir" \
-    tap "$root_dir/../homebrew-hyprspace" \
+    tap "$root_dir/../../brew" \
     releases "$root_dir/../hyprspace-releases"
 
 if [[ ! -d "$checkout_dir" ]]; then
