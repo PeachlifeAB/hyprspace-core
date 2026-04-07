@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-04-07
+
+### Added
+
+- `hyprspace deinit` interactive teardown wizard for clean uninstall.
+- Wallpaper getter helper (`hyprspace-get-wallpaper`).
+
+### Fixed
+
+- ANSI escape handling in generate script.
+
+### Changed
+
+- Documentation updated to reflect open-source status and code-signing.
+- Source repository `PeachlifeAB/hyprspace-core` is now public.
+
 ## [0.1.6] - 2026-04-01
 
 ### Changed
@@ -52,11 +68,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Canonical public homepage set to `https://hyprspace.net/`.
-- Public release artifacts are published in `PeachlifeAB/hyprspace-releases` while the source repository remains private.
+- Public release artifacts are published in `PeachlifeAB/hyprspace-releases` and the source repository is open at `PeachlifeAB/hyprspace-core`.
 
 ### Notes
 
-- Hyprspace releases are currently not code-signed or notarized by Apple. See `artifacts/docs/legal.md` and the public release surfaces for disclosure details.
+- Release codesigning was added in 0.1.1–0.1.4. See `artifacts/docs/legal.md` and the public release surfaces for disclosure details.
 
+[0.1.7]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.6...v0.1.7
 [0.1.1–0.1.4]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.0...v0.1.4
 [0.1.0]: https://github.com/PeachlifeAB/hyprspace-core/releases/tag/v0.1.0
