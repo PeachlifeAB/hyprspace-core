@@ -9,7 +9,7 @@ source ./scripts/verify/repo-state-table.sh
 
 new_version="${1:-}"
 tag="${HYPRSPACE_TAG_PREFIX}${new_version}"
-tap_dir="../../brew"
+tap_dir="../../homebrew-tap"
 releases_dir="../hyprspace-releases"
 
 die() {
@@ -30,6 +30,79 @@ require_git_repo() {
 assert_changelog_mentions_version() {
     test -f "CHANGELOG.md" || die "missing CHANGELOG.md"
     grep -Fq "$new_version" CHANGELOG.md || die "CHANGELOG.md must mention $new_version before publish"
+}
+
+assert_manifest_sources_exist() {
+    local manifest="scripts/internal/public-release-surface-manifest.json"
+    test -f "$manifest" || die "missing release surface manifest at $manifest"
+
+    local failures=0
+    local sources
+    sources="$(jq -r '.entries[].source' "$manifest")"
+    while IFS= read -r src; do
+        if [ ! -f "$src" ]; then
+            echo "[error] manifest source missing: $src" >&2
+            failures=$((failures + 1))
+        fi
+    done <<< "$sources"
+
+    local assertion_paths
+    assertion_paths="$(jq -r '.assertions[].local_path // empty' "$manifest")"
+    while IFS= read -r apath; do
+        [ -z "$apath" ] && continue
+        # assertion paths may be generated during build; only check if the
+        # parent directory exists (catches wrong directory prefixes)
+        local parent
+        parent="$(dirname "$apath")"
+        if [ ! -d "$parent" ]; then
+            echo "[error] manifest assertion parent dir missing: $parent (for $apath)" >&2
+            failures=$((failures + 1))
+        fi
+    done <<< "$assertion_paths"
+
+    if [ "$failures" -gt 0 ]; then
+        die "manifest references $failures missing source file(s); fix paths in $manifest"
+    fi
+}
+
+assert_patch_series_integrity() {
+    local series_file="patches/series"
+    test -f "$series_file" || die "missing $series_file"
+
+    local failures=0
+    while IFS= read -r entry; do
+        entry="$(echo "$entry" | sed 's/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//')"
+        [ -z "$entry" ] && continue
+        local patch_path="patches/$entry"
+        if [ ! -f "$patch_path" ]; then
+            echo "[error] series entry references missing patch: $patch_path" >&2
+            failures=$((failures + 1))
+            continue
+        fi
+        if ! grep -q '^# Summary: ' "$patch_path"; then
+            echo "[error] patch missing # Summary: metadata: $patch_path" >&2
+            failures=$((failures + 1))
+        fi
+    done < "$series_file"
+
+    if [ "$failures" -gt 0 ]; then
+        die "patch series has $failures issue(s); fix before releasing"
+    fi
+}
+
+assert_patches_doc_current() {
+    local doc="docs/patches.md"
+    test -f "$doc" || die "missing $doc"
+
+    local before_hash after_hash
+    before_hash="$(shasum -a 256 "$doc")"
+    python3 ./scripts/internal/generate-patches-doc.py
+    after_hash="$(shasum -a 256 "$doc")"
+
+    if [ "$before_hash" != "$after_hash" ]; then
+        git checkout -- "$doc" 2>/dev/null || true
+        die "$doc is stale; run: python3 scripts/internal/generate-patches-doc.py && commit"
+    fi
 }
 
 current_branch() {
@@ -143,6 +216,7 @@ require_git_repo "$tap_dir"
 require_git_repo "$releases_dir"
 
 require_cmd gh
+require_cmd jq
 assert_clean_repo "." "source"
 assert_clean_repo "$tap_dir" "tap"
 assert_clean_repo "$releases_dir" "releases"
@@ -154,3 +228,6 @@ assert_repo_push_safe "$tap_dir" "tap"
 assert_repo_push_safe "$releases_dir" "releases"
 assert_publish_version_available
 assert_changelog_mentions_version
+assert_manifest_sources_exist
+assert_patch_series_integrity
+assert_patches_doc_current

@@ -62,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - First public Hyprspace release.
-- Homebrew cask installation via `brew tap PeachlifeAB/hyprspace` and `brew install --cask hyprspace`.
+- Homebrew cask installation via `brew tap PeachlifeAB/tap` and `brew install --cask hyprspace`.
 - Versioned GitHub release zip containing the app bundle, CLI, init helpers, configuration docs, legal notices, and bundled support assets for offline inspection.
 
 ### Changed

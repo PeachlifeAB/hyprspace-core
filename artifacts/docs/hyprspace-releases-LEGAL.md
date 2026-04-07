@@ -4,7 +4,7 @@
 
 Hyprspace is a fork of AeroSpace by Nikita Bobko and remains based on upstream AeroSpace source plus Hyprspace patches. The combined Hyprspace public license text is published in this repository as `LICENSE`, and each release zip also bundles `legal/LICENSE.txt`.
 
-The open-source Hyprspace source and patch-control repository is available at `PeachlifeAB/hyprspace-core`. Public release artifacts are published in `PeachlifeAB/hyprspace-releases`, and the public Homebrew tap lives in `PeachlifeAB/brew`.
+The open-source Hyprspace source and patch-control repository is available at `PeachlifeAB/hyprspace-core`. Public release artifacts are published in `PeachlifeAB/hyprspace-releases`, and the public Homebrew tap lives in `PeachlifeAB/homebrew-tap`.
 
 ## Third-Party Dependencies
 
@@ -22,7 +22,7 @@ External users and auditors can inspect the open-source repository at `Peachlife
 - `LEGAL.md` in this repository for public disclosure
 - `LICENSE` in this repository for the Hyprspace public license text
 - The GitHub release page for version-specific notes and the published release zip
-- The Homebrew tap README and cask in `PeachlifeAB/brew`
+- The Homebrew tap README and cask in `PeachlifeAB/homebrew-tap`
 
 ## Release Artifact Contents
 

@@ -3,14 +3,14 @@
 This repository is the public release surface for Hyprspace.
 
 - Source code repository: (`PeachlifeAB/hyprspace-core`)
-- Public Homebrew tap: https://github.com/PeachlifeAB/brew
+- Public Homebrew tap: https://github.com/PeachlifeAB/homebrew-tap
 - Legal disclosure: ./LEGAL.md
 - License: ./LICENSE
 
 ## Install with Homebrew
 
 ```bash
-brew tap PeachlifeAB/hyprspace
+brew tap PeachlifeAB/tap
 brew install --cask hyprspace
 ```
 

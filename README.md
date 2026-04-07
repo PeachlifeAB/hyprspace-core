@@ -20,7 +20,7 @@ The project is heavily inspired by [Omarchy](https://omarchy.org/), an opinionat
 ## Install
 
 ```bash
-brew tap PeachlifeAB/hyprspace
+brew tap PeachlifeAB/tap
 brew install --cask hyprspace
 ```
 

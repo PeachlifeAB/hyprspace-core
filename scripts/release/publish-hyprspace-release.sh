@@ -38,7 +38,7 @@ TAG="${HYPRSPACE_TAG_PREFIX}${BUILD_VERSION}"
 ZIP_NAME="Hyprspace-v${BUILD_VERSION}.zip"
 ZIP_PATH="AeroSpace/.release/${ZIP_NAME}"
 ZIP_URL="https://github.com/${HYPRSPACE_RELEASES_REPO}/releases/download/${TAG}/${ZIP_NAME}"
-TAP_DIR="../../brew"
+TAP_DIR="../../homebrew-tap"
 RELEASES_DIR="../hyprspace-releases"
 RELEASE_NOTES_PATH="AeroSpace/.release/release-notes.md"
 publish_exit_label="final"
@@ -280,7 +280,7 @@ step "generating tap cask from published asset"
 )
 
 step "updating public tap repo"
-cp artifacts/docs/brew-README.md "$TAP_DIR/README.md"
+cp artifacts/docs/homebrew-hyprspace-README.md "$TAP_DIR/README.md"
 cp AeroSpace/.release/hyprspace.rb "$TAP_DIR/Casks/hyprspace.rb"
 sync_repo_if_needed "$TAP_DIR" "tap" "hyprspace: ${TAG}" README.md Casks/hyprspace.rb
 print_repo_state_table post-public-sync \

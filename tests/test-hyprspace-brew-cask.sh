@@ -15,7 +15,7 @@ log_file="$log_dir/${timestamp}-hyprspace-brew-cask.log"
 build_version="$(cat "$root_dir/version.txt")"
 zip_name="Hyprspace-v${build_version}.zip"
 cask_file="$checkout_dir/.release/hyprspace.rb"
-tapped_cask_file="/opt/homebrew/Library/Taps/peachlifeab/brew/Casks/hyprspace.rb"
+tapped_cask_file="/opt/homebrew/Library/Taps/peachlifeab/homebrew-tap/Casks/hyprspace.rb"
 tap_backup_dir=""
 
 mkdir -p "$log_dir"
@@ -117,6 +117,6 @@ echo "[info] tapped_cask_file=$tapped_cask_file"
 echo "[info] tap_backup_dir=$tap_backup_dir"
 echo "[info] local_audit_cask_file=$local_audit_cask_file"
 cp "$local_audit_cask_file" "$tapped_cask_file"
-HOMEBREW_NO_INSTALL_FROM_API=1 brew audit --cask peachlifeab/hyprspace/hyprspace
+HOMEBREW_NO_INSTALL_FROM_API=1 brew audit --cask peachlifeab/tap/hyprspace
 
 echo "[ok] hyprspace brew cask test passed"

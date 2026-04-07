@@ -5,7 +5,7 @@ Public Homebrew tap for Hyprspace.
 ## Install
 
 ```bash
-brew tap PeachlifeAB/hyprspace
+brew tap PeachlifeAB/tap
 brew install --cask hyprspace
 ```
 
@@ -19,7 +19,7 @@ brew upgrade --cask hyprspace
 
 ```bash
 brew uninstall --cask hyprspace
-brew untap PeachlifeAB/hyprspace
+brew untap PeachlifeAB/tap
 ```
 
 ## Public release surfaces

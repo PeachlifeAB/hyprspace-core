@@ -69,8 +69,8 @@ grep -nE 'LEGAL|LICENSE|hyprspace-releases' /tmp/hyprspace-tap-readme.txt
 
 echo "[step] installing public Homebrew cask"
 brew uninstall --cask --force hyprspace >/dev/null 2>&1 || true
-brew untap PeachlifeAB/hyprspace >/dev/null 2>&1 || true
-HOMEBREW_NO_INSTALL_FROM_API=1 brew tap PeachlifeAB/hyprspace
+brew untap PeachlifeAB/tap >/dev/null 2>&1 || true
+HOMEBREW_NO_INSTALL_FROM_API=1 brew tap PeachlifeAB/tap
 HOMEBREW_NO_INSTALL_FROM_API=1 brew install --cask --force hyprspace
 print_public_install_artifact_state post-install "$build_version"
 
