@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-04-07
+
+### Fixed
+
+- Release pipeline: ANSI color injection from tool runners breaking git output parsing in all release scripts.
+- Release pipeline: manifest and publish script referencing stale `brew-README.md` path.
+- Pre-release checks now validate manifest source files exist, patch series integrity, and docs freshness.
+- Homebrew tap renamed from `PeachlifeAB/brew` to `PeachlifeAB/tap` (standard naming). Legacy `PeachlifeAB/hyprspace` tap mirrored for backward compatibility.
+
 ## [0.1.7] - 2026-04-07
 
 ### Added
@@ -74,6 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Release codesigning was added in 0.1.1–0.1.4. See `artifacts/docs/legal.md` and the public release surfaces for disclosure details.
 
+[0.1.8]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.6...v0.1.7
 [0.1.1–0.1.4]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.0...v0.1.4
 [0.1.0]: https://github.com/PeachlifeAB/hyprspace-core/releases/tag/v0.1.0
