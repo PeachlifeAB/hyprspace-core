@@ -105,6 +105,21 @@ assert_patches_doc_current() {
     fi
 }
 
+assert_brew_tap_reachable() {
+    # Verify the Homebrew tap is installed and fetchable so the smoke test
+    # won't fail late in the pipeline. Also checks that brew --repository
+    # resolves, which catches untapped or renamed taps.
+    local brew_tap_dir
+    brew_tap_dir="$(brew --repository peachlifeab/tap 2>/dev/null || true)"
+    if [[ -z "$brew_tap_dir" || ! -d "$brew_tap_dir/.git" ]]; then
+        die "Homebrew tap peachlifeab/tap is not installed; run: brew tap PeachlifeAB/tap"
+    fi
+
+    if ! git -C "$brew_tap_dir" fetch --quiet origin main 2>/dev/null; then
+        die "Homebrew tap at $brew_tap_dir cannot fetch from origin; check remote URL"
+    fi
+}
+
 current_branch() {
     local repo_path="$1"
     git -C "$repo_path" symbolic-ref --quiet --short HEAD 2>/dev/null || echo main
@@ -231,3 +246,4 @@ assert_changelog_mentions_version
 assert_manifest_sources_exist
 assert_patch_series_integrity
 assert_patches_doc_current
+assert_brew_tap_reachable
