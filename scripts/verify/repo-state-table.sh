@@ -408,7 +408,7 @@ print_default_repo_state_table() {
     local label="${1:-current}"
     print_repo_state_table "$label" \
         source "$repo_state_root_dir" \
-        tap "$repo_state_root_dir/../../brew" \
+        tap "$repo_state_root_dir/../../homebrew-tap" \
         releases "$repo_state_root_dir/../hyprspace-releases"
 }
 

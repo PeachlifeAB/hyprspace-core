@@ -33,7 +33,7 @@ cleanup() {
 brew_cask_on_exit() {
     print_repo_state_table brew-cask-final \
         source "$root_dir" \
-        tap "$root_dir/../../brew" \
+        tap "$root_dir/../../homebrew-tap" \
         releases "$root_dir/../hyprspace-releases"
     cleanup
 }
@@ -46,7 +46,7 @@ echo "[info] zip_name=$zip_name"
 echo "[info] log_file=$log_file"
 print_repo_state_table brew-cask-preflight \
     source "$root_dir" \
-    tap "$root_dir/../../brew" \
+    tap "$root_dir/../../homebrew-tap" \
     releases "$root_dir/../hyprspace-releases"
 
 if [[ ! -d "$checkout_dir" ]]; then
