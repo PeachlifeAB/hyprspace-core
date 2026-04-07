@@ -283,6 +283,15 @@ step "updating public tap repo"
 cp artifacts/docs/homebrew-hyprspace-README.md "$TAP_DIR/README.md"
 cp AeroSpace/.release/hyprspace.rb "$TAP_DIR/Casks/hyprspace.rb"
 sync_repo_if_needed "$TAP_DIR" "tap" "hyprspace: ${TAG}" README.md Casks/hyprspace.rb
+
+step "syncing legacy tap mirror (homebrew-hyprspace)"
+LEGACY_TAP_REMOTE="git@github.com:PeachlifeAB/homebrew-hyprspace.git"
+if git -C "$TAP_DIR" remote get-url legacy >/dev/null 2>&1; then
+    git -C "$TAP_DIR" remote set-url legacy "$LEGACY_TAP_REMOTE"
+else
+    git -C "$TAP_DIR" remote add legacy "$LEGACY_TAP_REMOTE"
+fi
+git -C "$TAP_DIR" push legacy main 2>&1 || echo "[warn] legacy tap mirror push failed (non-fatal)" >&2
 print_repo_state_table post-public-sync \
     source "." \
     tap "$TAP_DIR" \
