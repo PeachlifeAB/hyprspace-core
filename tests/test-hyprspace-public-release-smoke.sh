@@ -69,8 +69,31 @@ grep -nE 'LEGAL|LICENSE|hyprspace-releases' /tmp/hyprspace-tap-readme.txt
 
 echo "[step] installing public Homebrew cask"
 brew uninstall --cask --force hyprspace >/dev/null 2>&1 || true
-brew untap PeachlifeAB/tap >/dev/null 2>&1 || true
-HOMEBREW_NO_INSTALL_FROM_API=1 brew tap PeachlifeAB/tap
+
+# Force the local tap to match the remote. brew untap may fail if other
+# formulae from this tap are installed, and brew tap is a no-op when the
+# tap directory already exists. Fetch + reset guarantees the tapped cask
+# reflects what was just pushed.
+tap_dir="$(brew --repository peachlifeab/tap 2>/dev/null || true)"
+if [[ -d "$tap_dir/.git" ]]; then
+    echo "[info] updating existing tap at $tap_dir"
+    git -C "$tap_dir" fetch origin
+    git -C "$tap_dir" reset --hard origin/main
+else
+    brew untap PeachlifeAB/tap >/dev/null 2>&1 || true
+    HOMEBREW_NO_INSTALL_FROM_API=1 brew tap PeachlifeAB/tap
+    tap_dir="$(brew --repository peachlifeab/tap)"
+fi
+
+# Assert the tapped cask version matches before installing
+tapped_version="$(grep -m1 'version "' "$tap_dir/Casks/hyprspace.rb" | sed 's/.*version "//;s/"//')"
+if [[ "$tapped_version" != "$build_version" ]]; then
+    echo "[error] tapped cask version ($tapped_version) does not match release version ($build_version)" >&2
+    echo "[error] tap_dir=$tap_dir" >&2
+    git -C "$tap_dir" log --oneline -3 >&2
+    exit 1
+fi
+
 HOMEBREW_NO_INSTALL_FROM_API=1 brew install --cask --force hyprspace
 print_public_install_artifact_state post-install "$build_version"
 
