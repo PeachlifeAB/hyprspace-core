@@ -10,13 +10,23 @@
 ## Owner paths
 
 - Baseline state: `./scripts/verify/repo-state-table.sh`
+- Mise wrapper: `mise run verify:repo-state`
 - Rebuild patched workspace: `./scripts/patch/refresh-workspace.sh`
+- Mise wrapper: `mise run patch:refresh-workspace`
 - Local install/bootstrap: `./scripts/install/install-local.sh`
+- Mise wrapper: `mise run install:local`
 - Patch validation: `PATCH_BIN="$(command -v gpatch)" bash scripts/patch/validate-patches.sh`
+- Mise wrapper: `mise run patch:validate`
 - Regenerate patch index: `python3 scripts/internal/generate-patches-doc.py`
 - Release/public-surface mapping: `scripts/internal/public-release-surface-manifest.json`
 - Release publish pre-release-checks: `./scripts/release/pre-release-checks.sh <version>`
 - Real release publish: `./scripts/release/publish-hyprspace-release.sh <version>`
+
+## Mise tasks
+
+- Public script entry points are available via `mise tasks`.
+- Prefer the task names for routine use: `mise run install:local`, `mise run patch:refresh-workspace`, `mise run patch:validate`, `mise run release:preflight -- <version>`, `mise run release:publish -- <version>`, `mise run verify:run-all-tests`.
+- Keep the release flow details inside `scripts/release/publish-hyprspace-release.sh`. `DEVELOPMENT.md` should only point to the task or script to run, not duplicate the release procedure.
 
 ## Patch rules
 

@@ -12,6 +12,8 @@ log_file="$log_dir/${timestamp}-hyprspace-init-notty.log"
 fake_install_root="$(make_temp_dir)"
 fake_wrapper="$fake_install_root/hyprspace"
 fake_runtime_dir="$fake_install_root/libexec/hyprspace-init"
+fake_app_path="$fake_install_root/Hyprspace.app"
+fake_bin_dir="$fake_install_root/test-bin"
 test_home="$(make_temp_dir)"
 
 mkdir -p "$log_dir"
@@ -30,7 +32,7 @@ if [[ ! -d "$root_dir/AeroSpace/docs/config-examples" ]]; then
     exit 1
 fi
 
-mkdir -p "$fake_install_root/libexec" "$fake_install_root/bin"
+mkdir -p "$fake_install_root/libexec" "$fake_install_root/bin" "$fake_bin_dir" "$fake_app_path"
 cp -R "$root_dir/libexec/hyprspace-init" "$fake_runtime_dir"
 chmod +x "$fake_runtime_dir/hyprspace-init" "$fake_runtime_dir/apply-init-selections.sh"
 cp -R "$root_dir/scripts" "$fake_install_root/scripts"
@@ -75,8 +77,25 @@ EOF
 chmod +x "$fake_wrapper"
 ln -s "$fake_wrapper" "$fake_install_root/bin/hyprspace"
 
+cat >"$fake_bin_dir/open" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+cat >"$fake_bin_dir/pgrep" <<'EOF'
+#!/bin/bash
+if [ "${1:-}" = "-x" ] && [ "${2:-}" = "Hyprspace" ]; then
+    exit 0
+fi
+exec /usr/bin/pgrep "$@"
+EOF
+cat >"$fake_bin_dir/sketchybar" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+chmod +x "$fake_bin_dir/open" "$fake_bin_dir/pgrep" "$fake_bin_dir/sketchybar"
+
 echo "[step] running packaged hyprspace init without a tty in default-apply mode via symlinked entrypoint"
-if ! output="$(HYPRSPACE_HOME_OVERRIDE="$test_home" HYPRSPACE_SKIP_DEPENDENCY_SETUP=1 HYPRSPACE_SKIP_MACOS_DEFAULTS=1 HYPRSPACE_SKIP_SKETCHYBAR_SERVICE=1 HYPRSPACE_SKIP_WALLPAPER_SETUP=1 HYPRSPACE_INIT_ASSUME_DEFAULTS=1 bash "$fake_install_root/bin/hyprspace" init 2>&1)"; then
+if ! output="$(PATH="$fake_bin_dir:$PATH" HYPRSPACE_APP_PATH_OVERRIDE="$fake_app_path" HYPRSPACE_HOME_OVERRIDE="$test_home" HYPRSPACE_SKIP_DEPENDENCY_SETUP=1 HYPRSPACE_SKIP_MACOS_DEFAULTS=1 HYPRSPACE_SKIP_SKETCHYBAR_SERVICE=1 HYPRSPACE_SKIP_WALLPAPER_SETUP=1 HYPRSPACE_INIT_ASSUME_DEFAULTS=1 bash "$fake_install_root/bin/hyprspace" init 2>&1)"; then
     echo "[error] packaged hyprspace init default-apply mode failed"
     printf '%s\n' "$output"
     exit 1

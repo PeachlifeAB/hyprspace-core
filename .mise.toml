@@ -1,0 +1,96 @@
+[tasks."install:cleanup"]
+description = "Run scripts/install/cleanup-hyprspace.sh. Dry-run cleanup by default. Pass script flags after '--'."
+run = "./scripts/install/cleanup-hyprspace.sh"
+
+[tasks."install:local"]
+description = "Run scripts/install/install-local.sh. Build and install the local Hyprspace payload."
+run = "./scripts/install/install-local.sh"
+
+[tasks."install:test-installed-init"]
+description = "Run scripts/install/test-installed-init.sh. Exercise the installed init runtime against a target home."
+run = "./scripts/install/test-installed-init.sh"
+
+[tasks."patch:normalize-series"]
+description = "Run scripts/patch/normalize-series-patches.sh. Normalize patch series formatting and ordering."
+run = "./scripts/patch/normalize-series-patches.sh"
+
+[tasks."patch:refresh-workspace"]
+description = "Run scripts/patch/refresh-workspace.sh. Rebuild the patched AeroSpace workspace from the patch stack."
+run = "./scripts/patch/refresh-workspace.sh"
+
+[tasks."patch:regenerate"]
+description = "Run scripts/patch/regenerate-patch.sh. Regenerate an existing patch from workspace changes."
+run = "./scripts/patch/regenerate-patch.sh"
+
+[tasks."patch:validate"]
+description = "Run scripts/patch/validate-patches.sh. Validate the patch stack and related generated docs."
+run = "./scripts/patch/validate-patches.sh"
+
+[tasks."release:preflight"]
+description = "Run scripts/release/pre-release-checks.sh. Validate release prerequisites for a version."
+run = "./scripts/release/pre-release-checks.sh"
+
+[tasks."release:publish"]
+description = "Run scripts/release/publish-hyprspace-release.sh. Publish a release payload. Pass the version after '--'."
+run = "bgtail bash ./scripts/release/publish-hyprspace-release.sh"
+
+[tasks."verify:install-githooks"]
+description = "Run scripts/verify/install-githooks.sh. Configure repo-local git hooks."
+run = "./scripts/verify/install-githooks.sh"
+
+[tasks."verify:patch-stack-preflight"]
+description = "Run scripts/verify/patch-stack-preflight.sh. Enforce patch stack invariants before commit or push."
+run = "./scripts/verify/patch-stack-preflight.sh"
+
+[tasks."verify:repo-state"]
+description = "Run scripts/verify/repo-state-table.sh. Print the current repo and artifact state table."
+run = "./scripts/verify/repo-state-table.sh"
+
+[tasks."verify:run-all-tests"]
+description = "Run scripts/verify/run-all-tests.sh. Execute the full scripted test matrix."
+run = "./scripts/verify/run-all-tests.sh"
+
+[tasks."internal:apply-init-selections"]
+description = "Run scripts/internal/apply-init-selections.sh. Internal wrapper around the init apply runtime."
+run = "./scripts/internal/apply-init-selections.sh"
+hide = true
+
+[tasks."internal:build-init-helpers"]
+description = "Run scripts/internal/build-init-helpers.sh. Build and install universal init helper binaries into runtime directories."
+run = "./scripts/internal/build-init-helpers.sh"
+hide = true
+
+[tasks."internal:generate-patches-doc"]
+description = "Run scripts/internal/generate-patches-doc.py. Regenerate docs/patches.md from patch metadata."
+run = "./scripts/internal/generate-patches-doc.py"
+hide = true
+
+[tasks."internal:setup-dependencies"]
+description = "Run scripts/internal/setup-dependencies.sh. Internal dependency bootstrap for init."
+run = "./scripts/internal/setup-dependencies.sh"
+hide = true
+
+[tasks."internal:setup-hyprspace-config"]
+description = "Run scripts/internal/setup-hyprspace-config.sh. Internal config bootstrap for init."
+run = "./scripts/internal/setup-hyprspace-config.sh"
+hide = true
+
+[tasks."internal:setup-macos-defaults"]
+description = "Run scripts/internal/setup-macos-defaults.sh. Internal macOS defaults bootstrap for init."
+run = "./scripts/internal/setup-macos-defaults.sh"
+hide = true
+
+[tasks."internal:setup-sketchybar-config"]
+description = "Run scripts/internal/setup-sketchybar-config.sh. Internal SketchyBar config bootstrap for init."
+run = "./scripts/internal/setup-sketchybar-config.sh"
+hide = true
+
+[tasks."internal:setup-wallpaper"]
+description = "Run scripts/internal/setup-wallpaper.sh. Internal wallpaper bootstrap for init."
+run = "./scripts/internal/setup-wallpaper.sh"
+hide = true
+
+[tasks."internal:validate-public-release-surface"]
+description = "Run scripts/internal/validate-public-release-surface.py. Validate release surface files against the manifest."
+run = "./scripts/internal/validate-public-release-surface.py"
+hide = true

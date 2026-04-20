@@ -265,6 +265,12 @@ run_apply_script() {
 
 hyprspace_app_path() {
     local app_dir
+
+    if [ -n "${HYPRSPACE_APP_PATH_OVERRIDE:-}" ]; then
+        printf '%s\n' "$HYPRSPACE_APP_PATH_OVERRIDE"
+        return 0
+    fi
+
     app_dir="${runtime_root%/Contents/Resources/libexec/hyprspace-init}"
 
     if [ "$app_dir" != "$runtime_root" ] && [ -d "$app_dir" ]; then
@@ -285,11 +291,7 @@ launch_hyprspace_app() {
     local app_path
     app_path="$(hyprspace_app_path)"
     echo "-> Launching Hyprspace.app..."
-    if [ -L "$app_path" ] && [ "$(readlink "$app_path")" = "/Applications/Hyprspace.app" ]; then
-        open -a Hyprspace
-    else
-        open -a "$app_path"
-    fi
+    open "$app_path"
 
     local timeout_s=10
     local started_at current_at
@@ -307,6 +309,22 @@ launch_hyprspace_app() {
 
         sleep 1
     done
+}
+
+reload_sketchybar() {
+    if ! command -v sketchybar >/dev/null 2>&1; then
+        echo "-> sketchybar not found, skipping reload."
+        return 0
+    fi
+
+    echo "-> Reloading sketchybar..."
+    sketchybar --reload
+}
+
+complete_setup() {
+    launch_hyprspace_app
+    reload_sketchybar
+    render_completion
 }
 
 apply_selection() {
@@ -409,8 +427,7 @@ run_interactive_selection() {
     fi
 
     apply_selection "$terminal_app" "$music_app" "$browser_app" "${selected_optional[@]}"
-    launch_hyprspace_app
-    render_completion
+    complete_setup
 }
 
 main() {
@@ -424,6 +441,7 @@ main() {
     if [ "${HYPRSPACE_INIT_ASSUME_DEFAULTS:-0}" = "1" ]; then
         read_lines_into_array selected default_selected_keys
         apply_selection "$(default_terminal_app)" "$(default_music_app)" "$(default_browser_app)" "${selected[@]}"
+        complete_setup
         return 0
     fi
 

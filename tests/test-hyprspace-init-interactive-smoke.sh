@@ -9,6 +9,8 @@ source "$root_dir/tests/_common.sh"
 declare -a HYPRSPACE_TEST_CLEANUP_PATHS=()
 fake_install_root="$(make_temp_dir)"
 fake_runtime_dir="$fake_install_root/libexec/hyprspace-init"
+fake_app_path="$fake_install_root/Hyprspace.app"
+fake_bin_dir="$fake_install_root/test-bin"
 test_home="$(make_temp_dir)"
 log_dir="$root_dir/log/tests"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -23,13 +25,30 @@ fi
 mkdir -p "$log_dir"
 register_cleanup_path "$fake_install_root" "$test_home"
 trap cleanup_paths_on_exit EXIT
-mkdir -p "$fake_install_root/libexec"
+mkdir -p "$fake_install_root/libexec" "$fake_bin_dir" "$fake_app_path"
 cp -R "$runtime_src" "$fake_runtime_dir"
 cp -R "$root_dir/scripts" "$fake_install_root/scripts"
 cp -R "$root_dir/artifacts" "$fake_install_root/artifacts"
 chmod +x "$fake_install_root/scripts/internal/setup-wallpaper.sh"
 mkdir -p "$fake_install_root/AeroSpace/docs"
 cp -R "$root_dir/AeroSpace/docs/config-examples" "$fake_install_root/AeroSpace/docs/config-examples"
+
+cat >"$fake_bin_dir/open" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+cat >"$fake_bin_dir/pgrep" <<'EOF'
+#!/bin/bash
+if [ "${1:-}" = "-x" ] && [ "${2:-}" = "Hyprspace" ]; then
+    exit 0
+fi
+exec /usr/bin/pgrep "$@"
+EOF
+cat >"$fake_bin_dir/sketchybar" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+chmod +x "$fake_bin_dir/open" "$fake_bin_dir/pgrep" "$fake_bin_dir/sketchybar"
 
 exec > >(tee "$log_file") 2>&1
 
@@ -39,6 +58,8 @@ echo "[info] test_home=$test_home"
 echo "[info] log_file=$log_file"
 
 echo "[step] running the init runtime in default-apply mode"
+PATH="$fake_bin_dir:$PATH" \
+    HYPRSPACE_APP_PATH_OVERRIDE="$fake_app_path" \
 HYPRSPACE_HOME_OVERRIDE="$test_home" \
     HYPRSPACE_SKIP_DEPENDENCY_SETUP=1 \
     HYPRSPACE_SKIP_MACOS_DEFAULTS=1 \

@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-04-20
+
+### Added
+
+- Mise task wrappers for the public `scripts/` entry points, so install, patch, release, and verify flows can be launched through `mise run`.
+
+### Fixed
+
+- `hyprspace init` now opens the installed app by direct bundle path and reloads SketchyBar at the end of setup, including the default non-interactive path used after install.
+- Init smoke coverage now verifies the post-setup launch and SketchyBar reload sequence without depending on a preinstalled app on the host machine.
+
+### Changed
+
+- Development docs now point to the new mise task names instead of repeating release flow details.
+
 ## [0.1.8] - 2026-04-07
 
 ### Fixed
