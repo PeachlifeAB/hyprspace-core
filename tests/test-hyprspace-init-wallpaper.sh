@@ -15,6 +15,10 @@ fake_wrapper="$fake_install_root/hyprspace"
 fake_runtime_dir="$fake_install_root/libexec/hyprspace-init"
 test_home="$(make_temp_dir)"
 wallpaper_probe_dir="$(make_temp_dir)"
+fake_bin_dir="$(make_temp_dir)"
+fake_app_path="$fake_install_root/Hyprspace.app"
+open_log="$fake_bin_dir/open.log"
+launch_marker="$fake_bin_dir/hyprspace.launch.marker"
 wallpaper_before_json="$wallpaper_probe_dir/wallpaper-before.json"
 wallpaper_after_json="$wallpaper_probe_dir/wallpaper-after.json"
 test_wallpaper="$wallpaper_probe_dir/hyprspace-wallpaper-test.jpg"
@@ -74,7 +78,7 @@ cleanup_wallpaper_test() {
 }
 
 mkdir -p "$log_dir"
-register_cleanup_path "$fake_install_root" "$test_home" "$wallpaper_probe_dir"
+register_cleanup_path "$fake_install_root" "$test_home" "$wallpaper_probe_dir" "$fake_bin_dir"
 trap 'status=$?; cleanup_wallpaper_test; cleanup_paths_on_exit; exit $status' EXIT INT TERM
 exec > >(tee "$log_file") 2>&1
 
@@ -84,6 +88,8 @@ echo "[info] fake_install_root=$fake_install_root"
 echo "[info] test_home=$test_home"
 echo "[info] wallpaper_before_json=$wallpaper_before_json"
 echo "[info] test_wallpaper=$test_wallpaper"
+echo "[info] fake_bin_dir=$fake_bin_dir"
+echo "[info] fake_app_path=$fake_app_path"
 
 if [[ ! -d "$root_dir/AeroSpace/docs/config-examples" ]]; then
     echo "[prereq] patched AeroSpace checkout not found or incomplete at $root_dir/AeroSpace"
@@ -114,7 +120,7 @@ chmod +x "$fake_runtime_dir/hyprspace-init" "$fake_runtime_dir/apply-init-select
 cp -R "$root_dir/scripts" "$fake_install_root/scripts"
 cp -R "$root_dir/artifacts" "$fake_install_root/artifacts"
 chmod +x "$fake_install_root/scripts/internal/setup-wallpaper.sh"
-mkdir -p "$fake_install_root/AeroSpace/docs" "$fake_install_root/bin"
+mkdir -p "$fake_install_root/AeroSpace/docs" "$fake_install_root/bin" "$fake_app_path"
 cp -R "$root_dir/AeroSpace/docs/config-examples" "$fake_install_root/AeroSpace/docs/config-examples"
 ln -s /usr/bin/true "$fake_install_root/libexec/hyprspace-cli"
 cat >"$fake_wrapper" <<'EOF'
@@ -153,9 +159,38 @@ EOF
 chmod +x "$fake_wrapper"
 ln -s "$fake_wrapper" "$fake_install_root/bin/hyprspace"
 
+cat >"$fake_bin_dir/open" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+printf '%s\n' "$@" > "$OPEN_LOG"
+: > "$LAUNCH_MARKER"
+EOF
+cat >"$fake_bin_dir/pgrep" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+if [ "${1:-}" = "-x" ] && [ "${2:-}" = "Hyprspace" ]; then
+    if [ -f "$LAUNCH_MARKER" ]; then
+        printf '424242\n'
+        exit 0
+    fi
+    exit 1
+fi
+exec /usr/bin/pgrep "$@"
+EOF
+cat >"$fake_bin_dir/sketchybar" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+printf 'sketchybar %s\n' "$*" >> "$OPEN_LOG"
+EOF
+chmod +x "$fake_bin_dir/open" "$fake_bin_dir/pgrep" "$fake_bin_dir/sketchybar"
+
 echo "[step] running packaged hyprspace init with wallpaper enabled via symlinked entrypoint"
-output="$(HYPRSPACE_HOME_OVERRIDE="$test_home" HYPRSPACE_SKIP_DEPENDENCY_SETUP=1 HYPRSPACE_SKIP_MACOS_DEFAULTS=1 HYPRSPACE_SKIP_SKETCHYBAR_SERVICE=1 HYPRSPACE_WALLPAPER_PATH="$test_wallpaper" HYPRSPACE_INIT_ASSUME_DEFAULTS=1 bash "$fake_install_root/bin/hyprspace" init 2>&1)"
+rm -f "$launch_marker"
+output="$(PATH="$fake_bin_dir:$PATH" OPEN_LOG="$open_log" LAUNCH_MARKER="$launch_marker" HYPRSPACE_APP_PATH_OVERRIDE="$fake_app_path" HYPRSPACE_HOME_OVERRIDE="$test_home" HYPRSPACE_SKIP_DEPENDENCY_SETUP=1 HYPRSPACE_SKIP_MACOS_DEFAULTS=1 HYPRSPACE_SKIP_SKETCHYBAR_SERVICE=1 HYPRSPACE_WALLPAPER_PATH="$test_wallpaper" HYPRSPACE_INIT_ASSUME_DEFAULTS=1 bash "$fake_install_root/bin/hyprspace" init 2>&1)"
 printf '%s\n' "$output"
+test -f "$open_log"
+grep -q "^$fake_app_path$" "$open_log"
+grep -q '^sketchybar --reload$' "$open_log"
 
 echo "[step] capturing wallpaper state after init"
 if ! read_wallpaper_json >"$wallpaper_after_json"; then
