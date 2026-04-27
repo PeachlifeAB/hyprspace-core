@@ -60,6 +60,9 @@ The active stack is the ordered list in `patches/series`. Each patch should prov
 - `hyprspace/accessibility-status.patch`
   **accessibility status** — Add non-prompting --accessibility-status self-checks for app and CLI
 
+- `hyprspace/open-terminal.patch`
+  **open terminal** — Adds open-terminal command, which opens Ghostty or Terminal.app running a specified command via AppleScript; --new forces a fresh app instance.
+
 ## Patch files not currently in `patches/series`
 
 - `hyprspace/build-release-restore-generated-files.patch`
