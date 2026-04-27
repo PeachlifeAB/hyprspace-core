@@ -42,100 +42,36 @@
 - Do not append anything to `patches/series` when replacing an existing patch.
 - After changing patch truth, rerun workspace refresh and patch validation.
 
-## Init flow internals
+## Init flow
 
-`hyprspace init` is an interactive TUI that installs optional integrations and writes the starter config. The entry point is `libexec/hyprspace-init/hyprspace-init`.
+### Changing default keybindings
 
-### Step registry
+Edit `artifacts/configs/hyprspace-config.toml`. This is the starter config template written to `~/.config/hyprspace/config.toml` on first init. App placeholders (`{{terminal}}`, `{{music}}`, `{{browser}}`) are substituted at install time based on the user's selections.
 
-All installable steps are declared in `libexec/hyprspace-init/step-metadata.sh`. This is the single source of truth for step keys, labels, defaults, and app choices.
+### Adding or changing installable tools
 
-Two categories:
+Two files own this:
 
-| Category | Keys | Behaviour |
-|----------|------|-----------|
-| Mandatory | `hyprspace_config`, `hack_nerd_font` | Always applied, not shown in the TUI |
-| Optional | `sketchybar`, `borders`, `macos_defaults`, `wallpaper` | Shown in the TUI, all selected by default |
+**`libexec/hyprspace-init/step-metadata.sh`** — declares what exists:
+- `OPTIONAL_STEP_KEYS` — steps shown in the TUI (all selected by default)
+- `MANDATORY_STEP_KEYS` — always applied, not shown in TUI
+- `step_label()` / `step_key_for_label()` — display names
+- `*_app_choices()` / `default_*_app()` — terminal, music, browser menus
 
-App choice menus (terminal, music, browser) are also declared in `step-metadata.sh` with `*_app_choices()` and `default_*_app()` functions.
+**`scripts/internal/setup-dependencies.sh`** — declares what gets installed:
+- Maps selected steps and app choices to `brew install` / `brew install --cask` calls
+- All installs are idempotent (skips if already installed)
 
-### Execution flow
+To add a new optional tool:
+1. Add the key to `OPTIONAL_STEP_KEYS` and add its `step_label()` / `step_key_for_label()` cases in `step-metadata.sh`
+2. Add the brew install in `setup-dependencies.sh`
+3. Add `--with-<key>` / `--without-<key>` handling and the setup call in `libexec/hyprspace-init/apply-init-selections.sh`
+4. Write `scripts/internal/setup-<key>.sh` for any config work beyond the install
+5. Add cleanup to `libexec/hyprspace-deinit/apply-deinit-selections.sh`
 
-```
-hyprspace init (TUI)
-  └── run_interactive_selection()          # gum choose menus
-        └── apply_selection()
-              └── apply-init-selections.sh  # dispatches by flag
-                    ├── scripts/internal/setup-dependencies.sh    # brew installs
-                    ├── scripts/internal/setup-hyprspace-config.sh
-                    ├── scripts/internal/setup-sketchybar-config.sh  (if enabled)
-                    ├── scripts/internal/setup-macos-defaults.sh     (if enabled)
-                    └── scripts/internal/setup-wallpaper.sh          (if enabled)
-```
-
-After apply, `complete_setup()` launches Hyprspace.app and runs `sketchybar --reload`.
-
-Non-interactive mode: `HYPRSPACE_INIT_ASSUME_DEFAULTS=1` skips the TUI and applies all defaults.
-
-### Dependency installer (`setup-dependencies.sh`)
-
-Installs packages via Homebrew based on the selected steps and app choices:
-
-| Condition | Package |
-|-----------|---------|
-| Always | `font-hack-nerd-font` (cask) |
-| `sketchybar` or `borders` selected | `FelixKratz/formulae` tap |
-| `sketchybar` selected | `sketchybar` (formula) |
-| `borders` selected | `borders` (formula) |
-| Terminal = Ghostty | `ghostty` (cask) |
-| Music = Spotify | `spotify` (cask) |
-| Browser = Helium | `helium-browser` (cask) |
-
-All installs are idempotent: already-installed packages are skipped.
-
-### Adding a new optional step
-
-1. Add the key to `OPTIONAL_STEP_KEYS` in `libexec/hyprspace-init/step-metadata.sh`.
-2. Add `step_label()` and `step_key_for_label()` cases for the new key.
-3. Add a `--with-<key>` / `--without-<key>` flag pair in `apply-init-selections.sh`.
-4. Add the corresponding `if [ "$enable_<key>" = "1" ]` block in `apply-init-selections.sh` that calls the setup script.
-5. Write `scripts/internal/setup-<key>.sh` for the actual install/config logic.
-6. If the step needs Homebrew packages, add them to `setup-dependencies.sh`.
-7. Add a `--without-<key>` case to `libexec/hyprspace-deinit/apply-deinit-selections.sh` and the corresponding cleanup script.
-
-### Adding a new app choice
-
-1. Add `<name>_app_choices()` and `default_<name>_app()` functions to `step-metadata.sh`.
-2. Add a `validate_<name>_app()` function to `step-metadata.sh`.
-3. Thread the choice through `apply-init-selections.sh` as `HYPRSPACE_SELECTED_<NAME>_APP`.
-4. Add the conditional brew install in `setup-dependencies.sh`.
-5. Use `$selected_<name>_app` in the relevant setup script (e.g., `setup-hyprspace-config.sh`).
-
-### Native helpers
-
-Three Swift helpers are compiled during `install-local` (or release build) by `scripts/internal/build-init-helpers.sh`:
-
-| Helper | Source | Purpose |
-|--------|--------|---------|
-| `hyprspace-notify-menubar` | `libexec/hyprspace-init/hyprspace-notify-menubar.swift` | Menu bar notification |
-| `hyprspace-set-wallpaper` | `libexec/hyprspace-init/hyprspace-set-wallpaper.swift` | Set desktop wallpaper |
-| `hyprspace-get-wallpaper` | `libexec/hyprspace-init/hyprspace-get-wallpaper.swift` | Read current wallpaper path |
-
-They are built as universal binaries (arm64 + x86_64) targeting macOS 15.0. Sources live alongside the shell scripts in `libexec/hyprspace-init/`; binaries are never committed.
-
-### Artifacts
-
-| Path | Purpose |
-|------|---------|
-| `artifacts/configs/hyprspace-config.toml` | Starter config template (rendered into `~/.config/hyprspace/config.toml`) |
-| `artifacts/configs/sketchybar/` | Sketchybar plugins and helpers copied to `~/.config/sketchybar/` |
-| `artifacts/docs/` | User-facing docs shipped to public release surfaces |
-
-The starter config template is processed by `setup-hyprspace-config.sh`, which substitutes `STARTER_ENABLE_*` and `STARTER_SELECTED_*` variables before writing to disk.
-
-### Deinit flow
-
-`hyprspace deinit` mirrors init. Entry: `libexec/hyprspace-deinit/hyprspace-deinit`. Step registry: `libexec/hyprspace-deinit/step-metadata.sh`. The deinit step keys cover: `sketchybar`, `borders`, `hyprspace_config`, `wallpaper`, `macos_defaults`, `homebrew_tap`.
+To add a new app choice (e.g. a new browser option):
+1. Add the value to the relevant `*_app_choices()` function and add a `validate_*_app()` case in `step-metadata.sh`
+2. Add the conditional brew install in `setup-dependencies.sh`
 
 ## Config internals
 
