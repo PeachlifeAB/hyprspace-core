@@ -1,0 +1,397 @@
+diff --git a/Sources/AppBundle/command/cmdManifest.swift b/Sources/AppBundle/command/cmdManifest.swift
+index 08858c2b..1e959946 100644
+--- a/Sources/AppBundle/command/cmdManifest.swift
++++ b/Sources/AppBundle/command/cmdManifest.swift
+@@ -64,6 +64,8 @@ extension CmdArgs {
+                 command = MoveWorkspaceToMonitorCommand(args: self as! MoveWorkspaceToMonitorCmdArgs)
+             case .newWindowOrOpen:
+                 command = NewWindowOrOpenCommand(args: self as! NewWindowOrOpenCmdArgs)
++            case .openTerminal:
++                command = OpenTerminalCommand(args: self as! OpenTerminalCmdArgs)
+             case .position:
+                 command = PositionCommand(args: self as! PositionCmdArgs)
+             case .reloadConfig:
+diff --git a/Sources/AppBundle/command/impl/OpenTerminalCommand.swift b/Sources/AppBundle/command/impl/OpenTerminalCommand.swift
+new file mode 100644
+index 00000000..03b08498
+--- /dev/null
++++ b/Sources/AppBundle/command/impl/OpenTerminalCommand.swift
+@@ -0,0 +1,31 @@
++import AppKit
++import Common
++import Foundation
++
++struct OpenTerminalCommand: Command {
++    let args: OpenTerminalCmdArgs
++    /*conforms*/ let shouldResetClosedWindowsCache = false
++    /*conforms*/ let shouldRefreshModel = false
++    /*conforms*/ let shouldRunInLightSession = false
++
++    @MainActor
++    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
++        if let postOpenAction = args.postOpenAction {
++            guard let windowId = try await OpenTerminalFlow.performAndResolveWindowId(appName: args.appName.val, command: args.command.val, newInstance: args.newInstance, env: env, io: io) else {
++                return false
++            }
++            return try await run(postOpenAction, on: windowId, env, io)
++        }
++        return try await OpenTerminalFlow.perform(appName: args.appName.val, command: args.command.val, newInstance: args.newInstance, env: env, io: io)
++    }
++
++    @MainActor
++    private func run(_ postOpenAction: NewWindowOrOpenPostOpenAction, on windowId: UInt32, _ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
++        switch postOpenAction {
++            case .position(let placement):
++                var positionArgs = PositionCmdArgs(rawArgs: [])
++                positionArgs.targetPlacement = .initialized(placement)
++                return try await PositionCommand(args: positionArgs.copy(\.windowId, windowId)).run(env, io)
++        }
++    }
++}
+diff --git a/Sources/AppBundle/command/impl/OpenTerminalFlow.swift b/Sources/AppBundle/command/impl/OpenTerminalFlow.swift
+new file mode 100644
+index 00000000..1abea46d
+--- /dev/null
++++ b/Sources/AppBundle/command/impl/OpenTerminalFlow.swift
+@@ -0,0 +1,161 @@
++import AppKit
++import Common
++import Darwin
++import Foundation
++
++enum OpenTerminalFlow {
++    @MainActor
++    static func perform(appName: String, command: String, newInstance: Bool, env: CmdEnv, io: CmdIo) async throws -> Bool {
++        guard let bundleId = resolvedBundleId(for: appName) else {
++            return io.err("open-terminal only supports Ghostty and Terminal.app, got '\(appName)'")
++        }
++        if newInstance {
++            return launchNewInstance(bundleId: bundleId, command: command, io: io)
++        }
++        return runWithCommand(bundleId: bundleId, command: command, io: io)
++    }
++
++    @MainActor
++    static func performAndResolveWindowId(appName: String, command: String, newInstance: Bool, env: CmdEnv, io: CmdIo) async throws -> UInt32? {
++        guard let bundleId = resolvedBundleId(for: appName) else {
++            _ = io.err("open-terminal only supports Ghostty and Terminal.app, got '\(appName)'")
++            return nil
++        }
++        let previousAllWindowIds = try await allAliveWindowIds()
++        let success = newInstance
++            ? launchNewInstance(bundleId: bundleId, command: command, io: io)
++            : runWithCommand(bundleId: bundleId, command: command, io: io)
++        guard success else { return nil }
++        guard let windowId = try await waitForNewFocusedWindowId(previousWindowIds: previousAllWindowIds) else {
++            _ = io.err("Failed to identify the newly opened window for '\(appName)'")
++            return nil
++        }
++        return windowId
++    }
++
++    private static func resolvedBundleId(for appName: String) -> String? {
++        let name = appName.lowercased()
++        let ghosttyNames: Set<String> = ["ghostty", "ghostty.app", KnownBundleId.ghostty.rawValue]
++        let terminalNames: Set<String> = ["terminal", "terminal.app", "com.apple.terminal"]
++        if ghosttyNames.contains(name) { return KnownBundleId.ghostty.rawValue }
++        if terminalNames.contains(name) { return "com.apple.terminal" }
++        return nil
++    }
++
++    // Default mode: reuse running app via AppleScript (works running or not)
++    private static func runWithCommand(bundleId: String, command: String, io: CmdIo) -> Bool {
++        let shell = userDefaultShell()
++        let shellCommand = "\(appleScriptEscape(shell)) -lc \(appleScriptEscape(command))"
++
++        let script: String
++        if bundleId == KnownBundleId.ghostty.rawValue {
++            script = """
++            tell application "Ghostty"
++                set cfg to new surface configuration
++                set command of cfg to "\(shellCommand)"
++                new window with configuration cfg
++            end tell
++            """
++        } else {
++            script = """
++            tell application "Terminal" to do script "\(shellCommand)"
++            tell application "Terminal" to activate
++            """
++        }
++        return runOsascript(script: script, bundleId: bundleId, io: io)
++    }
++
++    // --new mode: force a fresh app instance via open -n
++    private static func launchNewInstance(bundleId: String, command: String, io: CmdIo) -> Bool {
++        let shell = userDefaultShell()
++        let process = Process()
++        process.executableURL = URL(filePath: "/usr/bin/open")
++
++        if bundleId == KnownBundleId.ghostty.rawValue {
++            // Ghostty accepts -e <cmd> via --args; open -n forces a new instance
++            process.arguments = ["-na", "Ghostty", "--args", "-e", shell, "-lc", command]
++        } else {
++            // Terminal.app: open -n launches a new instance; it runs the default shell
++            // For command execution we fall back to AppleScript after launch
++            process.arguments = ["-na", "Terminal"]
++        }
++
++        do {
++            try process.run()
++            process.waitUntilExit()
++            guard process.terminationReason == .exit && process.terminationStatus == 0 else {
++                return io.err("open-terminal --new: open exited with status \(process.terminationStatus)")
++            }
++            // For Terminal.app --new: inject command via do script after brief delay
++            if bundleId != KnownBundleId.ghostty.rawValue {
++                let shellCommand = "\(appleScriptEscape(shell)) -lc \(appleScriptEscape(command))"
++                let script = """
++                tell application "Terminal" to do script "\(shellCommand)"
++                tell application "Terminal" to activate
++                """
++                return runOsascript(script: script, bundleId: bundleId, io: io)
++            }
++            return true
++        } catch {
++            return io.err("open-terminal --new: \(error.localizedDescription)")
++        }
++    }
++
++    private static func runOsascript(script: String, bundleId: String, io: CmdIo) -> Bool {
++        let process = Process()
++        process.executableURL = URL(filePath: "/usr/bin/osascript")
++        process.arguments = ["-e", script]
++        do {
++            try process.run()
++            process.waitUntilExit()
++            guard process.terminationReason == .exit && process.terminationStatus == 0 else {
++                return io.err("open-terminal: osascript exited with status \(process.terminationStatus) for '\(bundleId)'")
++            }
++            return true
++        } catch {
++            return io.err("open-terminal: \(error.localizedDescription)")
++        }
++    }
++
++    private static func appleScriptEscape(_ s: String) -> String {
++        s.replacingOccurrences(of: "\\", with: "\\\\")
++         .replacingOccurrences(of: "\"", with: "\\\"")
++    }
++
++    private static func userDefaultShell() -> String {
++        if let pw = getpwuid(getuid()), let shell = pw.pointee.pw_shell {
++            return String(cString: shell)
++        }
++        return "/bin/sh"
++    }
++
++    @MainActor
++    private static func allAliveWindowIds() async throws -> Set<UInt32> {
++        let mapping = try await MacApp.refreshAllAndGetAliveWindowIds(frontmostAppBundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
++        var result: Set<UInt32> = []
++        for (app, windowIds) in mapping {
++            if app.rawAppBundleId != nil {
++                for windowId in windowIds {
++                    _ = try await MacWindow.getOrRegister(windowId: windowId, macApp: app)
++                    result.insert(windowId)
++                }
++            }
++        }
++        return result
++    }
++
++    @MainActor
++    private static func waitForNewFocusedWindowId(previousWindowIds: Set<UInt32>) async throws -> UInt32? {
++        for _ in 0..<40 {
++            try await Task.sleep(nanoseconds: 100_000_000)
++            let newWindowIds = try await allAliveWindowIds().subtracting(previousWindowIds)
++            if let focusedWindow = focus.windowOrNil, newWindowIds.contains(focusedWindow.windowId) {
++                return focusedWindow.windowId
++            }
++            if let windowId = newWindowIds.singleOrNil() {
++                return windowId
++            }
++        }
++        return nil
++    }
++}
+diff --git a/Sources/AppBundleTests/command/OpenTerminalCommandTest.swift b/Sources/AppBundleTests/command/OpenTerminalCommandTest.swift
+new file mode 100644
+index 00000000..e99bf1b4
+--- /dev/null
++++ b/Sources/AppBundleTests/command/OpenTerminalCommandTest.swift
+@@ -0,0 +1,36 @@
++@testable import AppBundle
++import Common
++import XCTest
++
++final class OpenTerminalCommandTest: XCTestCase {
++    func testParse() {
++        testParseCommandSucc(
++            "open-terminal Ghostty btop",
++            OpenTerminalCmdArgs(rawArgs: []).copy(\.appName, .initialized("Ghostty")).copy(\.command, .initialized("btop"))
++        )
++        testParseCommandSucc(
++            "open-terminal Terminal.app \"vim /tmp/foo\"",
++            OpenTerminalCmdArgs(rawArgs: []).copy(\.appName, .initialized("Terminal.app")).copy(\.command, .initialized("vim /tmp/foo"))
++        )
++        testParseCommandSucc(
++            "open-terminal --new Ghostty btop",
++            OpenTerminalCmdArgs(rawArgs: []).copy(\.newInstance, true).copy(\.appName, .initialized("Ghostty")).copy(\.command, .initialized("btop"))
++        )
++        assertEquals(
++            parseCommand("open-terminal").errorOrNil,
++            "ERROR: Argument '<app-name>' is mandatory\nERROR: Argument '<command>' is mandatory"
++        )
++        assertEquals(
++            parseCommand("open-terminal Ghostty").errorOrNil,
++            "ERROR: Argument '<command>' is mandatory"
++        )
++    }
++
++    func testNewWindowAlias() {
++        // new-window is an alias for new-window-or-open
++        testParseCommandSucc(
++            "new-window Ghostty",
++            NewWindowOrOpenCmdArgs(rawArgs: []).copy(\.appName, .initialized("Ghostty"))
++        )
++    }
++}
+diff --git a/Sources/Cli/subcommandDescriptionsGenerated.swift b/Sources/Cli/subcommandDescriptionsGenerated.swift
+index cfd28ff2..48787694 100644
+--- a/Sources/Cli/subcommandDescriptionsGenerated.swift
++++ b/Sources/Cli/subcommandDescriptionsGenerated.swift
+@@ -29,6 +29,7 @@ let subcommandDescriptions = [
+     ["  move-node-to-workspace", "Move the focused window to the specified workspace"],
+     ["  move-workspace-to-monitor", "Move workspace to monitor targeted by relative direction, by order, or by pattern."],
+     ["  move", "Move the focused window in the given direction"],
++    ["  open-terminal", "Open a terminal with a command; use --new to force a fresh instance"],
+     ["  position", "Float the focused window and place it at a preset position on the screen"],
+     ["  reload-config", "Reload currently active config"],
+     ["  resize", "Resize the focused window"],
+diff --git a/Sources/Common/cmdArgs/cmdArgsManifest.swift b/Sources/Common/cmdArgs/cmdArgsManifest.swift
+index 1caeb5a3..07339e51 100644
+--- a/Sources/Common/cmdArgs/cmdArgsManifest.swift
++++ b/Sources/Common/cmdArgs/cmdArgsManifest.swift
+@@ -31,6 +31,7 @@ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
+     case moveNodeToWorkspace = "move-node-to-workspace"
+     case moveWorkspaceToMonitor = "move-workspace-to-monitor"
+     case newWindowOrOpen = "new-window-or-open"
++    case openTerminal = "open-terminal"
+     case position
+     case reloadConfig = "reload-config"
+     case resize
+@@ -111,6 +112,9 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
+                 result["move-workspace-to-display"] = SubCommandParser(MoveWorkspaceToMonitorCmdArgs.init)
+             case .newWindowOrOpen:
+                 result[kind.rawValue] = SubCommandParser(NewWindowOrOpenCmdArgs.init)
++                result["new-window"] = SubCommandParser(NewWindowOrOpenCmdArgs.init)
++            case .openTerminal:
++                result[kind.rawValue] = SubCommandParser(OpenTerminalCmdArgs.init)
+             case .position:
+                 result[kind.rawValue] = SubCommandParser(PositionCmdArgs.init)
+             case .reloadConfig:
+diff --git a/Sources/Common/cmdArgs/impl/NewWindowOrOpenShared.swift b/Sources/Common/cmdArgs/impl/NewWindowOrOpenShared.swift
+new file mode 100644
+index 00000000..3271f7ac
+--- /dev/null
++++ b/Sources/Common/cmdArgs/impl/NewWindowOrOpenShared.swift
+@@ -0,0 +1,20 @@
++import Foundation
++
++public enum NewWindowOrOpenPostOpenAction: Equatable, Sendable {
++    case position(PositionCmdArgs.Placement)
++}
++
++func parseNewWindowOrOpenPostOpenAction(i: ArgParserInput) -> ParsedCliArgs<NewWindowOrOpenPostOpenAction?> {
++    guard i.arg == "position" else {
++        return .fail("Unknown post-open action '\(i.arg)'. Expected 'position'", advanceBy: 1)
++    }
++    guard let rawPlacement = i.getOrNil(relativeIndex: 1) else {
++        return .fail("<preset> is mandatory after 'position'", advanceBy: 1)
++    }
++    switch parseEnum(rawPlacement, PositionCmdArgs.Placement.self) {
++        case .success(let placement):
++            return .succ(.position(placement), advanceBy: 2)
++        case .failure(let error):
++            return .fail(error, advanceBy: 2)
++    }
++}
+diff --git a/Sources/Common/cmdArgs/impl/OpenTerminalCmdArgs.swift b/Sources/Common/cmdArgs/impl/OpenTerminalCmdArgs.swift
+new file mode 100644
+index 00000000..8c4ce273
+--- /dev/null
++++ b/Sources/Common/cmdArgs/impl/OpenTerminalCmdArgs.swift
+@@ -0,0 +1,26 @@
++import Foundation
++
++public struct OpenTerminalCmdArgs: CmdArgs {
++    public let rawArgsForStrRepr: EquatableNoop<StrArrSlice>
++    public init(rawArgs: StrArrSlice) { self.rawArgsForStrRepr = .init(rawArgs) }
++    public static let parser: CmdParser<Self> = cmdParser(
++        kind: .openTerminal,
++        allowInConfig: true,
++        help: "USAGE: aerospace open-terminal [--new] <app-name> <command> [position <preset>]",
++        flags: [
++            "--new": trueBoolFlag(\.newInstance),
++        ],
++        posArgs: [
++            newArgParser(\.appName, consumeStrCliArg, mandatoryArgPlaceholder: "<app-name>"),
++            newArgParser(\.command, consumeStrCliArg, mandatoryArgPlaceholder: "<command>"),
++            ArgParser(\.postOpenAction, parseNewWindowOrOpenPostOpenAction),
++        ]
++    )
++
++    /*conforms*/ public var windowId: UInt32?
++    /*conforms*/ public var workspaceName: WorkspaceName?
++    public var newInstance: Bool = false
++    public var appName: Lateinit<String> = .uninitialized
++    public var command: Lateinit<String> = .uninitialized
++    public var postOpenAction: NewWindowOrOpenPostOpenAction? = nil
++}
+diff --git a/Sources/Common/cmdHelpGenerated.swift b/Sources/Common/cmdHelpGenerated.swift
+index 30885afa..2ff19cb3 100644
+--- a/Sources/Common/cmdHelpGenerated.swift
++++ b/Sources/Common/cmdHelpGenerated.swift
+@@ -123,6 +123,9 @@ let move_help_generated = """
+ let new_window_or_open_help_generated = """
+     USAGE: new-window-or-open <app-name> [position <preset>]
+     """
++let open_terminal_help_generated = """
++    USAGE: open-terminal [--new] <app-name> <command> [position <preset>]
++    """
+ let reload_config_help_generated = """
+     USAGE: reload-config [-h|--help] [--no-gui] [--dry-run]
+     """
+diff --git a/docs/aerospace-open-terminal.adoc b/docs/aerospace-open-terminal.adoc
+new file mode 100644
+index 00000000..ad7a4568
+--- /dev/null
++++ b/docs/aerospace-open-terminal.adoc
+@@ -0,0 +1,26 @@
++= open-terminal(1)
++
++== Name
++
++open-terminal - open a terminal with a command, reusing the running app or launching a fresh instance
++
++== Synopsis
++
++`aerospace open-terminal [--new] <app-name> <command> [position <preset>]`
++
++== Description
++
++Opens a new window in the specified terminal app and runs the given command inside it.
++Supports Ghostty and Terminal.app. The app is launched if not already running.
++
++The command is executed via the user's default login shell so that PATH and shell configuration are loaded.
++
++By default, reuses the running app: Ghostty via AppleScript `new window with configuration`, Terminal.app via `do script`.
++
++With `--new`, forces a fresh app instance via `open -n`.
++
++If `position <preset>` is provided, the newly opened window is placed using the requested floating preset.
++
++Example: `aerospace open-terminal Ghostty btop`
++Example: `aerospace open-terminal Terminal.app "vim ~/.config/hyprspace/config.toml"`
++Example: `aerospace open-terminal --new Ghostty "vim /tmp/scratch.md"`

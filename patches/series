@@ -16,3 +16,4 @@ hyprspace/support-config-toml-filename.patch
 hyprspace/canonical-config-paths.patch
 hyprspace/opinionated-config-defaults.patch
 hyprspace/accessibility-status.patch
+hyprspace/open-terminal.patch
