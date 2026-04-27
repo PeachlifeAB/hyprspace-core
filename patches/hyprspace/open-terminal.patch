@@ -1,3 +1,5 @@
+# Summary: Adds open-terminal command, which opens Ghostty or Terminal.app running a specified command via AppleScript; --new forces a fresh app instance.
+
 diff --git a/Sources/AppBundle/command/cmdManifest.swift b/Sources/AppBundle/command/cmdManifest.swift
 index 08858c2b..1e959946 100644
 --- a/Sources/AppBundle/command/cmdManifest.swift

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-04-28
+
+### Added
+
+- `open-terminal <app> <command> [--new]` command: opens Ghostty or Terminal.app running a specific command. Uses AppleScript for both backends; `--new` forces a fresh app instance. Login shell is auto-detected via `getpwuid` so PATH loads correctly.
+- `btop` as an optional init step (selected by default). The starter config binds `alt-shift-p` to launch btop in the user's chosen terminal.
+- `new-window` as a short alias for `new-window-or-open`.
+
+### Changed
+
+- Init flow documentation in `DEVELOPMENT.md` now covers how to update default keybindings and how to add new installable tools.
+
 ## [0.1.9] - 2026-04-20
 
 ### Added
@@ -98,6 +110,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Release codesigning was added in 0.1.1–0.1.4. See `artifacts/docs/legal.md` and the public release surfaces for disclosure details.
 
+[0.2.0]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.9...v0.2.0
+[0.1.9]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.6...v0.1.7
 [0.1.1–0.1.4]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.0...v0.1.4
