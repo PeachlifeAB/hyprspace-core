@@ -41,6 +41,7 @@ outer.top = [{ monitor."built-in" = 18 }, { monitor."main" = 48 }, 48]
 alt-enter = 'new-window-or-open {{terminal}}'
 alt-b = 'new-window-or-open {{browser}}'
 alt-m = 'new-window-or-open {{music}}'
+alt-shift-p = 'open-terminal {{terminal}} btop'
 
 alt-1 = 'workspace 1'
 alt-2 = 'workspace 2'

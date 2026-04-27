@@ -6,6 +6,7 @@ OPTIONAL_STEP_KEYS=(
     "borders"
     "macos_defaults"
     "wallpaper"
+    "btop"
 )
 
 MANDATORY_STEP_KEYS=(
@@ -21,6 +22,7 @@ step_label() {
     macos_defaults) echo "macOS defaults" ;;
     wallpaper) echo "Wallpaper" ;;
     hack_nerd_font) echo "Hack Nerd Font" ;;
+    btop) echo "btop" ;;
     *) return 1 ;;
     esac
 }
@@ -33,6 +35,7 @@ step_key_for_label() {
     "macOS defaults") echo "macos_defaults" ;;
     "Wallpaper") echo "wallpaper" ;;
     "Hack Nerd Font") echo "hack_nerd_font" ;;
+    "btop") echo "btop" ;;
     *) return 1 ;;
     esac
 }

@@ -89,3 +89,9 @@ if [ "$selected_browser_app" = "Helium" ]; then
 else
     echo "-> Safari selected, skipping Helium install."
 fi
+
+if [ "${enable_btop:-1}" = "1" ]; then
+    ensure_formula "btop" "btop"
+else
+    echo "-> btop disabled, skipping package install."
+fi
