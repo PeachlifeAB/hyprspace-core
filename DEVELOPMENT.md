@@ -41,6 +41,7 @@
 - The helper must rewrite the same patch as a plain diff that begins at `diff --git ...` and preserves any leading `# Summary: ...` metadata.
 - Do not append anything to `patches/series` when replacing an existing patch.
 - After changing patch truth, rerun workspace refresh and patch validation.
+- After adding or removing a patch, regenerate `docs/patches.md`: `python3 scripts/internal/generate-patches-doc.py` and commit the result.
 
 ## Init flow
 
@@ -65,9 +66,9 @@ Two files own this:
 To add a new optional tool:
 1. Add the key to `OPTIONAL_STEP_KEYS` and add its `step_label()` / `step_key_for_label()` cases in `step-metadata.sh`
 2. Add the brew install in `setup-dependencies.sh`
-3. Add `--with-<key>` / `--without-<key>` handling and the setup call in `libexec/hyprspace-init/apply-init-selections.sh`
-4. Write `scripts/internal/setup-<key>.sh` for any config work beyond the install
-5. Add cleanup to `libexec/hyprspace-deinit/apply-deinit-selections.sh`
+3. Add `--with-<key>` / `--without-<key>` flag handling in `libexec/hyprspace-init/apply-init-selections.sh`
+4. If config work is needed beyond the install, write `scripts/internal/setup-<key>.sh` and call it from `apply-init-selections.sh`
+5. If cleanup is needed on deinit, add it to `libexec/hyprspace-deinit/apply-deinit-selections.sh`
 
 To add a new app choice (e.g. a new browser option):
 1. Add the value to the relevant `*_app_choices()` function and add a `validate_*_app()` case in `step-metadata.sh`
