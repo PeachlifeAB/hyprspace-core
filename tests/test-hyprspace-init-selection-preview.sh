@@ -34,6 +34,7 @@ assert payload["apply_flags"] == [
     "--without-sketchybar",
     "--without-borders",
     "--without-wallpaper",
+    "--without-btop",
 ]
 PY
 

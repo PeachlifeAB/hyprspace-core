@@ -1,10 +1,9 @@
 # Summary: Adds open-terminal command, which opens Ghostty or Terminal.app running a specified command via AppleScript; --new forces a fresh app instance.
 
 diff --git a/Sources/AppBundle/command/cmdManifest.swift b/Sources/AppBundle/command/cmdManifest.swift
-index 08858c2b..1e959946 100644
 --- a/Sources/AppBundle/command/cmdManifest.swift
 +++ b/Sources/AppBundle/command/cmdManifest.swift
-@@ -64,6 +64,8 @@ extension CmdArgs {
+@@ -64,6 +64,8 @@
                  command = MoveWorkspaceToMonitorCommand(args: self as! MoveWorkspaceToMonitorCmdArgs)
              case .newWindowOrOpen:
                  command = NewWindowOrOpenCommand(args: self as! NewWindowOrOpenCmdArgs)
@@ -13,9 +12,9 @@ index 08858c2b..1e959946 100644
              case .position:
                  command = PositionCommand(args: self as! PositionCmdArgs)
              case .reloadConfig:
+
 diff --git a/Sources/AppBundle/command/impl/OpenTerminalCommand.swift b/Sources/AppBundle/command/impl/OpenTerminalCommand.swift
 new file mode 100644
-index 00000000..03b08498
 --- /dev/null
 +++ b/Sources/AppBundle/command/impl/OpenTerminalCommand.swift
 @@ -0,0 +1,31 @@
@@ -50,12 +49,12 @@ index 00000000..03b08498
 +        }
 +    }
 +}
+
 diff --git a/Sources/AppBundle/command/impl/OpenTerminalFlow.swift b/Sources/AppBundle/command/impl/OpenTerminalFlow.swift
 new file mode 100644
-index 00000000..1abea46d
 --- /dev/null
 +++ b/Sources/AppBundle/command/impl/OpenTerminalFlow.swift
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,163 @@
 +import AppKit
 +import Common
 +import Darwin
@@ -103,7 +102,7 @@ index 00000000..1abea46d
 +    // Default mode: reuse running app via AppleScript (works running or not)
 +    private static func runWithCommand(bundleId: String, command: String, io: CmdIo) -> Bool {
 +        let shell = userDefaultShell()
-+        let shellCommand = "\(appleScriptEscape(shell)) -lc \(appleScriptEscape(command))"
++        let shellCommand = "\(appleScriptEscape(shell)) -ilc \(appleScriptEscape(shellQuote(command + "; exec -l \(shellQuote(shell))")))"
 +
 +        let script: String
 +        if bundleId == KnownBundleId.ghostty.rawValue {
@@ -115,9 +114,16 @@ index 00000000..1abea46d
 +            end tell
 +            """
 +        } else {
++            // Pattern from Apple docs and bgtail: launch (no window), create an
++            // empty tab and capture its reference, then run the command in that
++            // exact tab. Avoids the double-window race when Terminal cold-starts.
 +            script = """
-+            tell application "Terminal" to do script "\(shellCommand)"
-+            tell application "Terminal" to activate
++            tell application "Terminal"
++                launch
++                set createdTab to do script ""
++                do script "\(shellCommand)" in createdTab
++                activate
++            end tell
 +            """
 +        }
 +        return runOsascript(script: script, bundleId: bundleId, io: io)
@@ -126,37 +132,28 @@ index 00000000..1abea46d
 +    // --new mode: force a fresh app instance via open -n
 +    private static func launchNewInstance(bundleId: String, command: String, io: CmdIo) -> Bool {
 +        let shell = userDefaultShell()
-+        let process = Process()
-+        process.executableURL = URL(filePath: "/usr/bin/open")
 +
 +        if bundleId == KnownBundleId.ghostty.rawValue {
 +            // Ghostty accepts -e <cmd> via --args; open -n forces a new instance
-+            process.arguments = ["-na", "Ghostty", "--args", "-e", shell, "-lc", command]
-+        } else {
-+            // Terminal.app: open -n launches a new instance; it runs the default shell
-+            // For command execution we fall back to AppleScript after launch
-+            process.arguments = ["-na", "Terminal"]
++            let process = Process()
++            process.executableURL = URL(filePath: "/usr/bin/open")
++            process.arguments = ["-na", "Ghostty", "--args", "-e", shell, "-ilc", command + "; exec -l " + shellQuote(shell)]
++            do {
++                try process.run()
++                process.waitUntilExit()
++                guard process.terminationReason == .exit && process.terminationStatus == 0 else {
++                    return io.err("open-terminal --new: open exited with status \(process.terminationStatus)")
++                }
++                return true
++            } catch {
++                return io.err("open-terminal --new: \(error.localizedDescription)")
++            }
 +        }
 +
-+        do {
-+            try process.run()
-+            process.waitUntilExit()
-+            guard process.terminationReason == .exit && process.terminationStatus == 0 else {
-+                return io.err("open-terminal --new: open exited with status \(process.terminationStatus)")
-+            }
-+            // For Terminal.app --new: inject command via do script after brief delay
-+            if bundleId != KnownBundleId.ghostty.rawValue {
-+                let shellCommand = "\(appleScriptEscape(shell)) -lc \(appleScriptEscape(command))"
-+                let script = """
-+                tell application "Terminal" to do script "\(shellCommand)"
-+                tell application "Terminal" to activate
-+                """
-+                return runOsascript(script: script, bundleId: bundleId, io: io)
-+            }
-+            return true
-+        } catch {
-+            return io.err("open-terminal --new: \(error.localizedDescription)")
-+        }
++        // Terminal.app cannot be launched as a clean new instance with a custom
++        // command in one window: it always opens its default window on cold spawn,
++        // and AppleScript can't target a specific Terminal process. Refuse.
++        return io.err("open-terminal --new: Terminal.app does not support clean new-instance launches. Use Ghostty for --new, or run open-terminal without --new for a new window.")
 +    }
 +
 +    private static func runOsascript(script: String, bundleId: String, io: CmdIo) -> Bool {
@@ -173,6 +170,10 @@ index 00000000..1abea46d
 +        } catch {
 +            return io.err("open-terminal: \(error.localizedDescription)")
 +        }
++    }
++
++    private static func shellQuote(_ s: String) -> String {
++        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
 +    }
 +
 +    private static func appleScriptEscape(_ s: String) -> String {
@@ -217,9 +218,9 @@ index 00000000..1abea46d
 +        return nil
 +    }
 +}
+
 diff --git a/Sources/AppBundleTests/command/OpenTerminalCommandTest.swift b/Sources/AppBundleTests/command/OpenTerminalCommandTest.swift
 new file mode 100644
-index 00000000..e99bf1b4
 --- /dev/null
 +++ b/Sources/AppBundleTests/command/OpenTerminalCommandTest.swift
 @@ -0,0 +1,36 @@
@@ -259,11 +260,11 @@ index 00000000..e99bf1b4
 +        )
 +    }
 +}
+
 diff --git a/Sources/Cli/subcommandDescriptionsGenerated.swift b/Sources/Cli/subcommandDescriptionsGenerated.swift
-index cfd28ff2..48787694 100644
 --- a/Sources/Cli/subcommandDescriptionsGenerated.swift
 +++ b/Sources/Cli/subcommandDescriptionsGenerated.swift
-@@ -29,6 +29,7 @@ let subcommandDescriptions = [
+@@ -29,6 +29,7 @@
      ["  move-node-to-workspace", "Move the focused window to the specified workspace"],
      ["  move-workspace-to-monitor", "Move workspace to monitor targeted by relative direction, by order, or by pattern."],
      ["  move", "Move the focused window in the given direction"],
@@ -271,11 +272,11 @@ index cfd28ff2..48787694 100644
      ["  position", "Float the focused window and place it at a preset position on the screen"],
      ["  reload-config", "Reload currently active config"],
      ["  resize", "Resize the focused window"],
+
 diff --git a/Sources/Common/cmdArgs/cmdArgsManifest.swift b/Sources/Common/cmdArgs/cmdArgsManifest.swift
-index 1caeb5a3..07339e51 100644
 --- a/Sources/Common/cmdArgs/cmdArgsManifest.swift
 +++ b/Sources/Common/cmdArgs/cmdArgsManifest.swift
-@@ -31,6 +31,7 @@ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
+@@ -31,6 +31,7 @@
      case moveNodeToWorkspace = "move-node-to-workspace"
      case moveWorkspaceToMonitor = "move-workspace-to-monitor"
      case newWindowOrOpen = "new-window-or-open"
@@ -283,7 +284,7 @@ index 1caeb5a3..07339e51 100644
      case position
      case reloadConfig = "reload-config"
      case resize
-@@ -111,6 +112,9 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
+@@ -111,6 +112,9 @@
                  result["move-workspace-to-display"] = SubCommandParser(MoveWorkspaceToMonitorCmdArgs.init)
              case .newWindowOrOpen:
                  result[kind.rawValue] = SubCommandParser(NewWindowOrOpenCmdArgs.init)
@@ -293,9 +294,9 @@ index 1caeb5a3..07339e51 100644
              case .position:
                  result[kind.rawValue] = SubCommandParser(PositionCmdArgs.init)
              case .reloadConfig:
+
 diff --git a/Sources/Common/cmdArgs/impl/NewWindowOrOpenShared.swift b/Sources/Common/cmdArgs/impl/NewWindowOrOpenShared.swift
 new file mode 100644
-index 00000000..3271f7ac
 --- /dev/null
 +++ b/Sources/Common/cmdArgs/impl/NewWindowOrOpenShared.swift
 @@ -0,0 +1,20 @@
@@ -319,9 +320,9 @@ index 00000000..3271f7ac
 +            return .fail(error, advanceBy: 2)
 +    }
 +}
+
 diff --git a/Sources/Common/cmdArgs/impl/OpenTerminalCmdArgs.swift b/Sources/Common/cmdArgs/impl/OpenTerminalCmdArgs.swift
 new file mode 100644
-index 00000000..8c4ce273
 --- /dev/null
 +++ b/Sources/Common/cmdArgs/impl/OpenTerminalCmdArgs.swift
 @@ -0,0 +1,26 @@
@@ -351,11 +352,11 @@ index 00000000..8c4ce273
 +    public var command: Lateinit<String> = .uninitialized
 +    public var postOpenAction: NewWindowOrOpenPostOpenAction? = nil
 +}
+
 diff --git a/Sources/Common/cmdHelpGenerated.swift b/Sources/Common/cmdHelpGenerated.swift
-index 30885afa..2ff19cb3 100644
 --- a/Sources/Common/cmdHelpGenerated.swift
 +++ b/Sources/Common/cmdHelpGenerated.swift
-@@ -123,6 +123,9 @@ let move_help_generated = """
+@@ -123,6 +123,9 @@
  let new_window_or_open_help_generated = """
      USAGE: new-window-or-open <app-name> [position <preset>]
      """
@@ -365,9 +366,9 @@ index 30885afa..2ff19cb3 100644
  let reload_config_help_generated = """
      USAGE: reload-config [-h|--help] [--no-gui] [--dry-run]
      """
+
 diff --git a/docs/aerospace-open-terminal.adoc b/docs/aerospace-open-terminal.adoc
 new file mode 100644
-index 00000000..ad7a4568
 --- /dev/null
 +++ b/docs/aerospace-open-terminal.adoc
 @@ -0,0 +1,26 @@

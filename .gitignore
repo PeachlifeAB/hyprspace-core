@@ -24,3 +24,7 @@ symlinks/
 /.local-install-test
 /Hyprspace/.specify
 refcode/
+
+# Local agent memory overrides (per-developer, not committed)
+AGENTS.override.md
+CLAUDE.local.md

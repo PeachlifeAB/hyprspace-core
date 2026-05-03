@@ -30,6 +30,7 @@ assert payload["selected_optional_steps"] == [
     "borders",
     "macos_defaults",
     "wallpaper",
+    "btop",
 ]
 assert payload["mandatory_steps"] == ["hyprspace_config", "hack_nerd_font"]
 assert payload["terminal_app"] == "Ghostty"

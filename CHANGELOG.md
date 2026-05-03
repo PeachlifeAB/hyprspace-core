@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-05-03
+
+### Fixed
+
+- `open-terminal`: multi-word commands no longer word-split before the shell.
+- `open-terminal`: inner shell sources `.zshrc` so interactive env vars are available.
+- `open-terminal`: terminal stays open after the command exits.
+- `open-terminal Terminal.app`: cold-start no longer opens a duplicate empty window.
+- `open-terminal Terminal.app --new`: refuses with a clear error (not supported).
+
 ## [0.2.0] - 2026-04-28
 
 ### Added
@@ -110,6 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Release codesigning was added in 0.1.1–0.1.4. See `artifacts/docs/legal.md` and the public release surfaces for disclosure details.
 
+[0.2.1]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.9...v0.2.0
 [0.1.9]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.7...v0.1.8
