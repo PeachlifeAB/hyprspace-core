@@ -5,8 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$ROOT_DIR/scripts/internal/init-human-log.sh"
 init_human_log "$ROOT_DIR" patch refresh-workspace
-REPO_URL="https://github.com/nikitabobko/AeroSpace.git"
 source "$ROOT_DIR/scripts/verify/repo-state-table.sh"
+source "$ROOT_DIR/product.conf"
+REPO_URL="$AEROSPACE_UPSTREAM_URL"
 
 resolve_patch_bin() {
     local candidate
@@ -51,7 +52,11 @@ echo "-> Using GNU patch: $PATCH_BIN ($("$PATCH_BIN" --version 2>&1 | head -1))"
 if [ -d "AeroSpace" ]; then
     echo "-> AeroSpace/ directory exists. Fetching latest from origin..."
     cd AeroSpace
-    git fetch origin --tags
+    if ! git fetch origin --tags; then
+        echo "❌ ERROR: Failed to fetch from AeroSpace origin remote." >&2
+        echo "   Check network connectivity and that origin URL is reachable." >&2
+        exit 1
+    fi
     # Abort any in-progress git rebase or am just in case
     git am --abort 2>/dev/null || true
     git rebase --abort 2>/dev/null || true
@@ -62,7 +67,7 @@ else
 fi
 
 # Pin to the version recorded in aerospace_version.txt
-PINNED_VERSION="$(cat "$ROOT_DIR/aerospace_version.txt")"
+PINNED_VERSION="$(read_aerospace_version)"
 LATEST_TAG="v${PINNED_VERSION}"
 if ! git rev-parse --verify "$LATEST_TAG" >/dev/null 2>&1; then
     echo "❌ ERROR: Tag $LATEST_TAG not found in AeroSpace repo."
@@ -74,6 +79,8 @@ echo "======================================================"
 echo "🔄 Refreshing AeroSpace workspace to $LATEST_TAG"
 echo "======================================================"
 git checkout main >/dev/null 2>&1 || true
+# AeroSpace/ is ephemeral — patches/ is the source of truth. Any local
+# edits here are intentionally discarded; export them as patches first.
 git reset --hard "$LATEST_TAG"
 git clean -fd
 

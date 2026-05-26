@@ -34,6 +34,10 @@ run = "./scripts/release/pre-release-checks.sh"
 description = "Run scripts/release/publish-hyprspace-release.sh. Publish a release payload. Pass the version after '--'."
 run = "bgtail bash ./scripts/release/publish-hyprspace-release.sh"
 
+[tasks."release:upgrade-upstream"]
+description = "Run scripts/release/upgrade-upstream.sh. Detect new AeroSpace tag, apply patches, and publish a new Hyprspace release."
+run = "bgtail bash ./scripts/release/upgrade-upstream.sh"
+
 [tasks."verify:install-githooks"]
 description = "Run scripts/verify/install-githooks.sh. Configure repo-local git hooks."
 run = "./scripts/verify/install-githooks.sh"

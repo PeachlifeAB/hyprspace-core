@@ -5,27 +5,13 @@ root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root_dir"
 
 source ./product.conf
+source ./scripts/release/release-lib.sh
 source ./scripts/verify/repo-state-table.sh
 
 new_version="${1:-}"
 tag="${HYPRSPACE_TAG_PREFIX}${new_version}"
 tap_dir="../../homebrew-tap"
 releases_dir="../hyprspace-releases"
-
-die() {
-    printf '%s\n' "[error] $1" >&2
-    exit 1
-}
-
-require_cmd() {
-    command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
-}
-
-require_git_repo() {
-    local path="$1"
-    test -d "$path" || die "missing required repo clone at $path"
-    git -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "path is not a git repo: $path"
-}
 
 assert_changelog_mentions_version() {
     test -f "CHANGELOG.md" || die "missing CHANGELOG.md"
@@ -40,11 +26,12 @@ assert_manifest_sources_exist() {
     local sources
     sources="$(jq -r '.entries[].source' "$manifest")"
     while IFS= read -r src; do
+        [ -z "$src" ] && continue
         if [ ! -f "$src" ]; then
             echo "[error] manifest source missing: $src" >&2
             failures=$((failures + 1))
         fi
-    done <<< "$sources"
+    done <<<"$sources"
 
     local assertion_paths
     assertion_paths="$(jq -r '.assertions[].local_path // empty' "$manifest")"
@@ -58,7 +45,7 @@ assert_manifest_sources_exist() {
             echo "[error] manifest assertion parent dir missing: $parent (for $apath)" >&2
             failures=$((failures + 1))
         fi
-    done <<< "$assertion_paths"
+    done <<<"$assertion_paths"
 
     if [ "$failures" -gt 0 ]; then
         die "manifest references $failures missing source file(s); fix paths in $manifest"
@@ -83,7 +70,7 @@ assert_patch_series_integrity() {
             echo "[error] patch missing # Summary: metadata: $patch_path" >&2
             failures=$((failures + 1))
         fi
-    done < "$series_file"
+    done <"$series_file"
 
     if [ "$failures" -gt 0 ]; then
         die "patch series has $failures issue(s); fix before releasing"
@@ -109,6 +96,7 @@ assert_brew_tap_reachable() {
     # Verify the Homebrew tap is installed and fetchable so the smoke test
     # won't fail late in the pipeline. Also checks that brew --repository
     # resolves, which catches untapped or renamed taps.
+    require_cmd brew
     local brew_tap_dir
     brew_tap_dir="$(brew --repository peachlifeab/tap 2>/dev/null || true)"
     if [[ -z "$brew_tap_dir" || ! -d "$brew_tap_dir/.git" ]]; then
@@ -120,73 +108,12 @@ assert_brew_tap_reachable() {
     fi
 }
 
-current_branch() {
-    local repo_path="$1"
-    git -C "$repo_path" symbolic-ref --quiet --short HEAD 2>/dev/null || echo main
-}
-
-has_upstream() {
-    local repo_path="$1"
-    git -C "$repo_path" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1
-}
-
-assert_clean_repo() {
-    local repo_path="$1"
-    local label="$2"
-    local dirty
-    if [ "$repo_path" = "." ]; then
-        dirty="$(git -c color.status=false -C "$repo_path" status --short | grep -v '^ M CHANGELOG\.md$' | grep -v '^M  CHANGELOG\.md$' || true)"
-    else
-        dirty="$(git -c color.status=false -C "$repo_path" status --short)"
-    fi
-    if [ -n "$dirty" ]; then
-        git -C "$repo_path" status --short >&2
-        die "$label repo has uncommitted changes; clean $repo_path before publish"
-    fi
-}
-
-ensure_repo_remote_ready() {
-    local repo_path="$1"
-    local label="$2"
-    local branch
-    branch="$(current_branch "$repo_path")"
-
-    git -C "$repo_path" remote get-url origin >/dev/null 2>&1 || die "$label repo missing origin remote: $repo_path"
-
-    if ! has_upstream "$repo_path"; then
-        die "$label repo branch '$branch' has no upstream; push it first with: git -C $repo_path push -u origin $branch"
-    fi
-
-    git -C "$repo_path" fetch --quiet origin "$branch" >/dev/null 2>&1 || die "$label repo failed to fetch origin/$branch"
-    git -C "$repo_path" rev-parse --verify "origin/$branch" >/dev/null 2>&1 || die "$label repo remote branch origin/$branch is missing"
-}
-
-assert_repo_push_safe() {
-    local repo_path="$1"
-    local label="$2"
-    local branch ahead behind counts
-    branch="$(current_branch "$repo_path")"
-    counts="$(git -c color.ui=never -C "$repo_path" rev-list --left-right --count "HEAD...@{u}")"
-    ahead="${counts%%$'\t'*}"
-    behind="${counts##*$'\t'}"
-
-    if [ "$ahead" -gt 0 ] && [ "$behind" -gt 0 ]; then
-        die "$label repo branch '$branch' has diverged from origin/$branch (ahead $ahead, behind $behind); reconcile $repo_path before publish"
-    fi
-
-    if [ "$behind" -gt 0 ]; then
-        die "$label repo branch '$branch' is behind origin/$branch by $behind commit(s); sync $repo_path before publish (for example: git -C $repo_path pull --ff-only)"
-    fi
-
-    if [ "$ahead" -gt 0 ]; then
-        die "$label repo branch '$branch' is ahead of origin/$branch by $ahead commit(s); push or reset $repo_path before publish"
-    fi
-}
-
 assert_publish_version_available() {
     local prev_version lower
 
-    git fetch --tags origin >/dev/null 2>&1 || true
+    if ! git fetch --tags origin >/dev/null 2>&1; then
+        echo "[warn] failed to fetch tags from origin; remote-tag checks may be stale" >&2
+    fi
     prev_version="$(git -c color.ui=never tag --list "${HYPRSPACE_TAG_PREFIX}*" --sort=-version:refname | head -1 | sed "s/^${HYPRSPACE_TAG_PREFIX}//")"
     if [ -n "$prev_version" ]; then
         lower="$(printf '%s\n%s' "$prev_version" "$new_version" | sort -V | head -1)"
@@ -238,7 +165,7 @@ assert_clean_repo "$releases_dir" "releases"
 ensure_repo_remote_ready "." "source"
 ensure_repo_remote_ready "$tap_dir" "tap"
 ensure_repo_remote_ready "$releases_dir" "releases"
-assert_repo_push_safe "." "source"
+assert_repo_push_safe "." "source" "${ALLOW_SOURCE_AHEAD_FOR_RELEASE:-0}"
 assert_repo_push_safe "$tap_dir" "tap"
 assert_repo_push_safe "$releases_dir" "releases"
 assert_publish_version_available

@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$ROOT_DIR/scripts/internal/init-human-log.sh"
+source "$ROOT_DIR/product.conf"
 init_human_log "$ROOT_DIR" patch validate-patches
 
 LINT_ONLY=0
@@ -53,8 +54,7 @@ esac
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PATCHES_DIR="$ROOT_DIR/patches"
 SERIES_FILE="$PATCHES_DIR/series"
-AEROSPACE_VERSION_FILE="$ROOT_DIR/aerospace_version.txt"
-REPO_URL="https://github.com/nikitabobko/AeroSpace.git"
+REPO_URL="$AEROSPACE_UPSTREAM_URL"
 
 VALIDATE_TMP_DIR=""
 cleanup() {
@@ -105,7 +105,9 @@ parse_series() {
     local series_file="$1"
     while IFS= read -r raw_line; do
         local line="${raw_line%%#*}"
-        line="$(echo "$line" | xargs 2>/dev/null || true)"
+        # Trim leading/trailing whitespace
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
         [[ -z "$line" ]] && continue
         echo "$line"
     done <"$series_file"
@@ -137,11 +139,6 @@ lint_patch_format() {
     fi
 }
 
-if [[ ! -f "$AEROSPACE_VERSION_FILE" ]]; then
-    echo "❌ ERROR: aerospace_version.txt not found at $AEROSPACE_VERSION_FILE" >&2
-    exit 1
-fi
-
 if [[ ! -f "$SERIES_FILE" ]]; then
     echo "❌ ERROR: patches/series not found at $SERIES_FILE" >&2
     exit 1
@@ -150,7 +147,7 @@ fi
 PATCH_BIN="$(resolve_patch_bin)"
 echo "-> Using GNU patch: $PATCH_BIN ($("$PATCH_BIN" --version 2>&1 | head -1))"
 
-PINNED_VERSION="$(cat "$AEROSPACE_VERSION_FILE")"
+PINNED_VERSION="$(read_aerospace_version)"
 LATEST_TAG="v${PINNED_VERSION}"
 echo "-> Pinned AeroSpace version: $LATEST_TAG"
 
@@ -212,7 +209,7 @@ while IFS= read -r patch_entry; do
 
     echo "-> [$patch_count] Validating $patch_entry"
 
-    patch_out_file="$(mktemp)"
+    patch_out_file="$(mktemp "$VALIDATE_TMP_DIR/patch-out.XXXXXX")"
 
     if ! "$PATCH_BIN" -p1 \
         --ignore-whitespace \

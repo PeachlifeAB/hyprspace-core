@@ -3,6 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 source ./product.conf
+source ./scripts/release/release-lib.sh
 source ./scripts/verify/repo-state-table.sh
 
 NEW_VERSION=""
@@ -62,15 +63,6 @@ publish_release_on_exit() {
 
 trap publish_release_on_exit EXIT
 
-step() {
-    echo "[step] $1"
-}
-
-die() {
-    echo "[error] $1" >&2
-    exit 1
-}
-
 print_release_boundary() {
     local label="$1"
     local note="${2:-}"
@@ -101,16 +93,6 @@ capture_zip_boundary() {
     fi
 }
 
-require_cmd() {
-    command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
-}
-
-require_git_repo() {
-    local path="$1"
-    test -d "$path" || die "missing required repo clone at $path"
-    git -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "path is not a git repo: $path"
-}
-
 sync_live_release_patch_truth() {
     local patch_name="hyprspace/install-surface-identity.patch"
     local patch_path="patches/$patch_name"
@@ -134,19 +116,6 @@ sync_live_release_patch_truth() {
     fi
 }
 
-commit_if_needed() {
-    local repo_path="$1"
-    local commit_message="$2"
-    shift 2
-    git -C "$repo_path" add "$@"
-    if git -C "$repo_path" diff --cached --quiet; then
-        echo "[info] no commit needed in $repo_path"
-        return 0
-    fi
-    git -C "$repo_path" commit -m "$commit_message"
-    git -C "$repo_path" push
-}
-
 commit_version_file() {
     git add version.txt CHANGELOG.md
     git commit -m "Release $TAG"
@@ -156,43 +125,30 @@ push_release_commit() {
     git push origin main
 }
 
-current_branch() {
-    local repo_path="$1"
-    git -C "$repo_path" symbolic-ref --quiet --short HEAD 2>/dev/null || echo main
-}
-
-has_upstream() {
-    local repo_path="$1"
-    git -C "$repo_path" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1
-}
-
-sync_repo_if_needed() {
-    local repo_path="$1"
-    local label="$2"
-    local commit_message="$3"
-    shift 3
-    local branch ahead_count
-
-    commit_if_needed "$repo_path" "$commit_message" "$@"
-
-    branch="$(current_branch "$repo_path")"
-    if ! has_upstream "$repo_path"; then
-        git -C "$repo_path" push -u origin "$branch"
-        return 0
-    fi
-
-    git -C "$repo_path" fetch --quiet origin "$branch" >/dev/null 2>&1 || die "$label repo failed to fetch origin/$branch"
-    ahead_count="$(git -c color.ui=never -C "$repo_path" rev-list --count "@{u}..HEAD")"
-    if [ "$ahead_count" -gt 0 ]; then
-        git -C "$repo_path" push
-    else
-        echo "[info] $label repo already synced to remote"
-    fi
-}
-
+# GitHub's CDN can serve transient 404s for a freshly created release
+# asset for tens of seconds after `gh release create` returns. Without
+# retries, a CDN propagation race here would leave us with a published
+# release that we never validated. Retry with backoff so transient
+# 404s do not abort the publish flow.
 download_public_zip() {
     local destination="$1"
-    curl -fsSL "$ZIP_URL" -o "$destination"
+    local delays="2 5 10 20 30"
+    local attempt=0
+    local total_attempts=5
+    local curl_exit=0
+    local delay
+    for delay in $delays; do
+        attempt=$((attempt + 1))
+        if curl -fsSL "$ZIP_URL" -o "$destination"; then
+            return 0
+        fi
+        curl_exit=$?
+        if [ "$attempt" -lt "$total_attempts" ]; then
+            echo "[warn] download attempt $attempt failed (curl exit $curl_exit); retrying in ${delay}s..." >&2
+            sleep "$delay"
+        fi
+    done
+    return "$curl_exit"
 }
 
 verify_release_body() {
@@ -204,11 +160,15 @@ verify_release_body() {
 step "preflight"
 require_cmd curl
 
-step "refreshing patched AeroSpace checkout from patch truth"
-./scripts/patch/refresh-workspace.sh
+if [[ -z "${SKIP_REFRESH_WORKSPACE:-}" ]]; then
+    step "refreshing patched AeroSpace checkout from patch truth"
+    ./scripts/patch/refresh-workspace.sh
 
-step "syncing live release patch truth"
-sync_live_release_patch_truth
+    step "syncing live release patch truth"
+    sync_live_release_patch_truth
+else
+    step "skipping workspace refresh (SKIP_REFRESH_WORKSPACE set by upgrade-upstream)"
+fi
 
 step "regenerating patch docs"
 patches_doc_before_hash="$(shasum -a 256 docs/patches.md 2>/dev/null || echo missing)"
@@ -259,13 +219,17 @@ push_release_commit
 
 step "tagging source repo"
 git tag -a "$TAG" -m "$TAG"
-git push origin "$TAG"
+if ! git push origin "$TAG"; then
+    die "failed to push tag $TAG to origin; source commit was already pushed. Inspect local/remote tags before retrying: git tag -l '$TAG' && git ls-remote --tags origin '$TAG'"
+fi
 
 step "publishing GitHub release"
-gh release create "$TAG" "$ZIP_PATH" \
+if ! gh release create "$TAG" "$ZIP_PATH" \
     --repo "$HYPRSPACE_RELEASES_REPO" \
     --title "$TAG" \
-    --notes-file "$RELEASE_NOTES_PATH"
+    --notes-file "$RELEASE_NOTES_PATH"; then
+    die "failed to publish GitHub release $TAG; source commit and tag were already pushed. Inspect release state before retrying: gh release view '$TAG' --repo '$HYPRSPACE_RELEASES_REPO'"
+fi
 
 step "verifying release notes body"
 verify_release_body
@@ -291,7 +255,9 @@ if git -C "$TAP_DIR" remote get-url legacy >/dev/null 2>&1; then
 else
     git -C "$TAP_DIR" remote add legacy "$LEGACY_TAP_REMOTE"
 fi
-git -C "$TAP_DIR" push legacy main 2>&1 || echo "[warn] legacy tap mirror push failed (non-fatal)" >&2
+if ! git -C "$TAP_DIR" push legacy main; then
+    echo "[warn] legacy tap mirror push failed (non-fatal); continuing" >&2
+fi
 print_repo_state_table post-public-sync \
     source "." \
     tap "$TAP_DIR" \
