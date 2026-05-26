@@ -36,13 +36,6 @@
       "public_url": "https://raw.githubusercontent.com/{releases_repo}/main/LICENSE"
     },
     {
-      "id": "release-notes",
-      "mode": "render",
-      "source": "artifacts/docs/release-notes.md",
-      "local_dest": "AeroSpace/.release/release-notes.md",
-      "expected_local_parent": "AeroSpace/.release"
-    },
-    {
       "id": "zip-docs-legal",
       "mode": "copy",
       "source": "artifacts/docs/legal.md",

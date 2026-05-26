@@ -200,6 +200,10 @@ if [ "$before_zip_boundary" = "$after_zip_boundary" ]; then
     die "release build step did not refresh $ZIP_PATH"
 fi
 
+step "generating release notes from changelog"
+python3 ./scripts/internal/extract-release-notes.py "$NEW_VERSION" CHANGELOG.md \
+    > "$RELEASE_NOTES_PATH"
+
 step "rendering local owned public surfaces"
 python3 ./scripts/internal/validate-public-release-surface.py --phase local-owned-sync
 test -s "$RELEASE_NOTES_PATH" || die "rendered release notes are empty"
@@ -233,6 +237,14 @@ fi
 
 step "verifying release notes body"
 verify_release_body
+
+step "creating source repo GitHub release"
+if ! gh release create "$TAG" \
+    --repo "$HYPRSPACE_GITHUB_REPO" \
+    --title "$TAG" \
+    --notes-file "$RELEASE_NOTES_PATH"; then
+    echo "[warn] failed to create source repo GitHub release $TAG (non-fatal); create manually: gh release create '$TAG' --repo '$HYPRSPACE_GITHUB_REPO' --title '$TAG' --notes-file '$RELEASE_NOTES_PATH'" >&2
+fi
 
 step "generating tap cask from published asset"
 (

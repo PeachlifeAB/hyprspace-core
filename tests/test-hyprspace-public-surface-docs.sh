@@ -36,8 +36,7 @@ echo "[step] showing tap README legal/release links"
 grep -nE 'hyprspace-releases|LEGAL|LICENSE' "$tap_repo/README.md"
 
 echo "[step] checking generated local release notes surface"
-test -f "$root_dir/AeroSpace/.release/release-notes.md"
-grep -nE 'brew install --cask hyprspace|LEGAL.md|LICENSE|not code-signed|notarized' "$root_dir/AeroSpace/.release/release-notes.md"
+test -s "$root_dir/AeroSpace/.release/release-notes.md"
 
 echo "[step] checking generated cask public homepage assertions"
 grep -n 'homepage "https://hyprspace.net/"' "$generated_cask"
