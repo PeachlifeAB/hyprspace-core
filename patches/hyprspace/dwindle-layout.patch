@@ -1,12 +1,35 @@
 # Summary: Implements a Hyprland-style dwindle insertion strategy based on the most recently used tiled window.
 
 diff --git a/Sources/AppBundle/tree/MacWindow.swift b/Sources/AppBundle/tree/MacWindow.swift
-index ac65852b..0c63c251 100644
 --- a/Sources/AppBundle/tree/MacWindow.swift
 +++ b/Sources/AppBundle/tree/MacWindow.swift
-@@ -225,6 +225,32 @@ private func unbindAndGetBindingDataForNewTilingWindow(_ workspace: Workspace, w
+@@ -210,9 +210,17 @@
+ extension Window {
+     @MainActor
+     func relayoutWindow(on workspace: Workspace, forceTile: Bool = false) async throws {
+-        let data = forceTile
+-            ? unbindAndGetBindingDataForNewTilingWindow(workspace, window: self)
+-            : try await unbindAndGetBindingDataForNewWindow(self.asMacWindow().windowId, self.asMacWindow().macApp, workspace, window: self)
++        if forceTile {
++            bindAsNewTilingWindow(on: workspace)
++            return
++        }
++        let data = try await unbindAndGetBindingDataForNewWindow(self.asMacWindow().windowId, self.asMacWindow().macApp, workspace, window: self)
++        bind(to: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
++    }
++
++    @MainActor
++    func bindAsNewTilingWindow(on workspace: Workspace) {
++        let data = unbindAndGetBindingDataForNewTilingWindow(workspace, window: self)
+         bind(to: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
+     }
+ }
+@@ -232,8 +240,34 @@
+ @MainActor
+ private func unbindAndGetBindingDataForNewTilingWindow(_ workspace: Workspace, window: Window?) -> BindingData {
      window?.unbindFromParent() // It's important to unbind to get correct data from below
-     let mruWindow = workspace.mostRecentWindowRecursive
+-    let mruWindow = workspace.mostRecentWindowRecursive
++    let mruWindow = workspace.rootTilingContainer.mostRecentWindowRecursive
      if let mruWindow, let tilingParent = mruWindow.parent as? TilingContainer {
 +        if tilingParent.children.count >= 2 {
 +            let newOrientation: Orientation
@@ -37,8 +60,8 @@ index ac65852b..0c63c251 100644
          return BindingData(
              parent: tilingParent,
              adaptiveWeight: WEIGHT_AUTO,
+
 diff --git a/Sources/AppBundle/tree/normalizeContainers.swift b/Sources/AppBundle/tree/normalizeContainers.swift
-index 931b028f..20b6fdac 100644
 --- a/Sources/AppBundle/tree/normalizeContainers.swift
 +++ b/Sources/AppBundle/tree/normalizeContainers.swift
 @@ -1,3 +1,5 @@
@@ -47,7 +70,7 @@ index 931b028f..20b6fdac 100644
  extension Workspace {
      @MainActor func normalizeContainers() {
          rootTilingContainer.unbindEmptyAndAutoFlatten() // Beware! rootTilingContainer may change after this line of code
-@@ -24,8 +26,18 @@ extension TilingContainer {
+@@ -24,8 +26,18 @@
              for child in children {
                  (child as? TilingContainer)?.unbindEmptyAndAutoFlatten()
              }
@@ -68,9 +91,9 @@ index 931b028f..20b6fdac 100644
              }
          }
      }
+
 diff --git a/Sources/AppBundleTests/tree/DwindleBugTest.swift b/Sources/AppBundleTests/tree/DwindleBugTest.swift
 new file mode 100644
-index 00000000..ea63dad6
 --- /dev/null
 +++ b/Sources/AppBundleTests/tree/DwindleBugTest.swift
 @@ -0,0 +1,68 @@
@@ -142,12 +165,12 @@ index 00000000..ea63dad6
 +        XCTAssertEqual(workspace.rootTilingContainer.orientation, .h, "First split should ALWAYS be horizontal")
 +    }
 +}
+
 diff --git a/Sources/AppBundleTests/tree/DwindleLayoutTest.swift b/Sources/AppBundleTests/tree/DwindleLayoutTest.swift
 new file mode 100644
-index 00000000..aa97aa27
 --- /dev/null
 +++ b/Sources/AppBundleTests/tree/DwindleLayoutTest.swift
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,197 @@
 +@testable import AppBundle
 +import XCTest
 +
@@ -283,5 +306,84 @@ index 00000000..aa97aa27
 +            ])
 +        )
 +    }
++
++    func testTilingFloatingWindowIgnoresFloatingMru() async throws {
++        config.enableNormalizationFlattenContainers = true
++        let workspace = Workspace.get(byName: name)
++
++        let w1 = TestWindow.new(id: 1, parent: macosPopupWindowsContainer)
++        try await w1.relayoutWindow(on: workspace, forceTile: true)
++        w1.markAsMostRecentChild()
++
++        let w2 = TestWindow.new(id: 2, parent: macosPopupWindowsContainer)
++        try await w2.relayoutWindow(on: workspace, forceTile: true)
++        w2.markAsMostRecentChild()
++
++        let floating = TestWindow.new(id: 99, parent: workspace)
++        floating.markAsMostRecentChild()
++
++        let w3 = TestWindow.new(id: 3, parent: workspace)
++        w3.markAsMostRecentChild()
++        try await w3.relayoutWindow(on: workspace, forceTile: true)
++
++        assertEquals(
++            workspace.rootTilingContainer.layoutDescription,
++            .h_tiles([
++                .window(1),
++                .v_tiles([
++                    .window(2),
++                    .window(3)
++                ])
++            ])
++        )
++    }
++
++    func testMoveNodeToWorkspaceUsesDwindleInsertion() async throws {
++        config.enableNormalizationFlattenContainers = true
++        let source = Workspace.get(byName: name)
++        let target = Workspace.get(byName: "target")
++
++        let w1 = TestWindow.new(id: 1, parent: macosPopupWindowsContainer)
++        try await w1.relayoutWindow(on: target, forceTile: true)
++        w1.markAsMostRecentChild()
++
++        let w2 = TestWindow.new(id: 2, parent: macosPopupWindowsContainer)
++        try await w2.relayoutWindow(on: target, forceTile: true)
++        w2.markAsMostRecentChild()
++
++        let moving = TestWindow.new(id: 3, parent: source.rootTilingContainer)
++        moving.markAsMostRecentChild()
++
++        XCTAssertTrue(moveWindowToWorkspace(moving, target, CmdIo(stdin: .emptyStdin), focusFollowsWindow: false, failIfNoop: false))
++
++        assertEquals(
++            target.rootTilingContainer.layoutDescription,
++            .h_tiles([
++                .window(1),
++                .v_tiles([
++                    .window(2),
++                    .window(3)
++                ])
++            ])
++        )
++    }
 +}
 
+diff --git a/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift b/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift
+--- a/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift
++++ b/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift
+@@ -36,7 +36,12 @@
+         }
+         return !failIfNoop
+     }
+-    let targetContainer: NonLeafTreeNodeObject = window.isFloating ? targetWorkspace : targetWorkspace.rootTilingContainer
+-    window.bind(to: targetContainer, adaptiveWeight: WEIGHT_AUTO, index: index)
++    if window.isFloating {
++        window.bind(to: targetWorkspace, adaptiveWeight: WEIGHT_AUTO, index: index)
++    } else if index == INDEX_BIND_LAST {
++        window.bindAsNewTilingWindow(on: targetWorkspace)
++    } else {
++        window.bind(to: targetWorkspace.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: index)
++    }
+     return focusFollowsWindow ? window.focusWindow() : true
+ }
