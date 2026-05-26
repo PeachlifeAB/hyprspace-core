@@ -1,0 +1,28 @@
+name: Nightly upstream upgrade PR
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  upgrade:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+      - run: |
+          brew install gpatch coreutils
+          echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
+      - run: mise run release:prepare-upstream-pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: Upgrade AeroSpace upstream
+          branch: bot/upgrade-aerospace
+          title: Upgrade AeroSpace upstream

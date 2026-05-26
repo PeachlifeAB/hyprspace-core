@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Current `Hyprspace` patches are based on AeroSpace v0.20.3-Beta
 
+## [0.2.2] - 2026-05-26
+
+### Fixed
+
+- Dwindle layout can now be restored at runtime by toggling workspace windows from floating back to tiling, avoiding a full app restart after manual tree changes such as `move` or `join-with`.
+- `move-node-to-workspace` now inserts appended tiled windows through the dwindle insertion path instead of falling back to flat split behavior.
+
+### Changed
+
+- Release automation now has stricter upstream-upgrade safety checks and keeps upstream bump commits local until the final publish push.
+- Nightly upstream checks can prepare a reviewable PR when a new AeroSpace release is available.
+
 ## [0.2.1] - 2026-05-03
 
 ### Fixed
