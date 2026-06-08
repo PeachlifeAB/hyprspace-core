@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Current `Hyprspace` patches are based on AeroSpace v0.20.3-Beta
 
+## [0.2.3] - 2026-06-08
+
+### Added
+
+- Release notes are now extracted from the changelog automatically via a new `extract-release-notes.py` script, replacing the manually maintained `release-notes.md` artifact.
+
+### Fixed
+
+- Homebrew cask deprecation warning: `depends_on macos:` string comparison format replaced with bare symbol syntax (`:sequoia`).
+
 ## [0.2.2] - 2026-05-26
 
 ### Fixed
@@ -141,3 +151,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.1.7]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.6...v0.1.7
 [0.1.1–0.1.4]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.0...v0.1.4
 [0.1.0]: https://github.com/PeachlifeAB/hyprspace-core/releases/tag/v0.1.0
+[0.2.3]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.2.2...v0.2.3
