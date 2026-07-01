@@ -45,32 +45,19 @@ assert_repo_push_safe "." "source"
 
 # --- Bump aerospace_version.txt and refresh workspace ---
 
-# Capture prior revision.txt contents (if any) so we can restore on rollback.
-# Use explicit existence check rather than `cat ... || true` so that real
-# read failures (permissions, etc.) surface instead of being silently
-# treated as "file missing" and leading to an incorrect rm -f on rollback.
-if [ -f revision.txt ]; then
-    OLD_REVISION="$(cat revision.txt)"
-else
-    OLD_REVISION=""
-fi
-
 step "writing new AeroSpace version"
 echo "$NEW_AEROSPACE" >aerospace_version.txt
 
 step "refreshing patched workspace to v${NEW_AEROSPACE}"
 if ! ./scripts/patch/refresh-workspace.sh; then
-    # Restore the metadata files we just touched so the repo state matches
-    # the pre-upgrade snapshot. NOTE: AeroSpace/ itself has been wiped /
-    # left in an inconsistent state by the failed refresh — only patches/
-    # + version files are restored here, not the working tree.
-    echo "$OLD_AEROSPACE" >aerospace_version.txt
-    if [ -n "$OLD_REVISION" ]; then
-        echo "$OLD_REVISION" >revision.txt
-    else
-        rm -f revision.txt
-    fi
-    die "refresh-workspace failed; restored aerospace_version.txt and revision.txt, but AeroSpace/ is in an inconsistent state — rerun 'mise run patch:refresh-workspace' (with the restored OLD aerospace_version.txt) to rebuild the working tree before retrying the upgrade"
+    # Deliberately do NOT roll back aerospace_version.txt / revision.txt.
+    # refresh-workspace already pinned AeroSpace/ at the NEW base and printed
+    # a "MANUAL REBASE REQUIRED" block above with the exact recovery steps.
+    # Keeping the NEW base pinned leaves you positioned to rebase the failing
+    # patch immediately, then re-run this command to resume. Nothing has been
+    # committed or published — only the ephemeral checkout + version files
+    # (both restorable with: git checkout -- aerospace_version.txt revision.txt).
+    die "upstream patch stack did not apply on AeroSpace v${NEW_AEROSPACE}; follow the MANUAL REBASE block printed above, then re-run: mise run release:upgrade-upstream"
 fi
 # If any patch fails, refresh-workspace exits non-zero with clear output.
 # Fix the conflict in AeroSpace/, re-export the owning patch (Scenario A in
