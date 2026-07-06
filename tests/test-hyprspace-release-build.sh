@@ -88,7 +88,15 @@ if [[ "$sign_id" != "-" ]] && ! security find-identity -v -p codesigning | grep 
     echo "[info] signing identity not found: $sign_id — falling back to adhoc signing (-)"
     sign_id="-"
 fi
-./script/internal/build-release.sh --build-version "$build_version" --skip-docs --skip-shell-parser --allow-dirty --codesign-identity "$sign_id"
+build_bash="${HYPRSPACE_BUILD_BASH:-}"
+if [ -z "$build_bash" ]; then
+    if [ -x /opt/homebrew/bin/bash ]; then
+        build_bash=/opt/homebrew/bin/bash
+    else
+        build_bash=bash
+    fi
+fi
+"$build_bash" ./script/internal/build-release.sh --build-version "$build_version" --skip-docs --skip-shell-parser --allow-dirty --codesign-identity "$sign_id"
 
 expected_zip="$checkout_dir/.release/Hyprspace-v$build_version.zip"
 test -f "$expected_zip" || {
