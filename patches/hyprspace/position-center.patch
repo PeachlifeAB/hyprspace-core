@@ -1,10 +1,9 @@
 # Summary: Adds a position center command that floats the target window and centers it at a large preset size.
 
 diff --git a/Sources/AppBundle/command/cmdManifest.swift b/Sources/AppBundle/command/cmdManifest.swift
-index 85c955d6..81016bd5 100644
 --- a/Sources/AppBundle/command/cmdManifest.swift
 +++ b/Sources/AppBundle/command/cmdManifest.swift
-@@ -60,6 +60,8 @@ extension CmdArgs {
+@@ -72,6 +72,8 @@
                  command = MoveWorkspaceToMonitorCommand(args: self as! MoveWorkspaceToMonitorCmdArgs)
              case .newWindowOrOpen:
                  command = NewWindowOrOpenCommand(args: self as! NewWindowOrOpenCmdArgs)
@@ -13,9 +12,9 @@ index 85c955d6..81016bd5 100644
              case .reloadConfig:
                  command = ReloadConfigCommand(args: self as! ReloadConfigCmdArgs)
              case .resize:
+
 diff --git a/Sources/AppBundle/command/impl/PositionCommand.swift b/Sources/AppBundle/command/impl/PositionCommand.swift
 new file mode 100644
-index 00000000..0ef04c19
 --- /dev/null
 +++ b/Sources/AppBundle/command/impl/PositionCommand.swift
 @@ -0,0 +1,36 @@
@@ -55,9 +54,9 @@ index 00000000..0ef04c19
 +        return true
 +    }
 +}
+
 diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/AppBundleTests/command/PositionCommandTest.swift
 new file mode 100644
-index 00000000..12f06871
 --- /dev/null
 +++ b/Sources/AppBundleTests/command/PositionCommandTest.swift
 @@ -0,0 +1,41 @@
@@ -69,7 +68,7 @@ index 00000000..12f06871
 +    func testParsePositionCenter() {
 +        var expected = PositionCmdArgs(rawArgs: [])
 +        expected.targetPlacement = .initialized(.center)
-+        testParseCommandSucc("position center", expected)
++        testParseSingleCommandSucc("position center", expected)
 +    }
 +
 +    @MainActor
@@ -89,7 +88,7 @@ index 00000000..12f06871
 +        XCTAssertTrue(window.isFloating, "Window should be floating after position command")
 +
 +        let monitorRect = workspace.workspaceMonitor.visibleRect
-+        if let rect = try await window.getAxRect() {
++        if let rect = try await window.getAxRect(.nonCancellable) {
 +            let expectedWidth = monitorRect.width * 0.75
 +            let expectedHeight = monitorRect.height * 0.75
 +            let expectedX = monitorRect.minX + (monitorRect.width * 0.125)
@@ -102,16 +101,14 @@ index 00000000..12f06871
 +        } else {
 +            XCTFail("Window has no rect")
 +        }
-+    }
-+}
+
 diff --git a/Sources/AppBundleTests/tree/TestWindow.swift b/Sources/AppBundleTests/tree/TestWindow.swift
-index 154130d6..d08f2aca 100644
 --- a/Sources/AppBundleTests/tree/TestWindow.swift
 +++ b/Sources/AppBundleTests/tree/TestWindow.swift
-@@ -39,4 +39,10 @@ final class TestWindow: Window, CustomStringConvertible {
-     @MainActor override func getAxRect() async throws -> Rect? { // todo change to not Optional
-         _rect
+@@ -42,4 +42,10 @@
      }
+ 
+     override func isMacosFullscreen(_ cm: CancellationMode) async throws -> Bool { isMacosFullscreenForTest }
 +
 +    override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
 +        if let topLeft = topLeft, let size = size {
@@ -119,31 +116,19 @@ index 154130d6..d08f2aca 100644
 +        }
 +    }
  }
-diff --git a/Sources/Cli/subcommandDescriptionsGenerated.swift b/Sources/Cli/subcommandDescriptionsGenerated.swift
-index 9c563f2a..add4a693 100644
---- a/Sources/Cli/subcommandDescriptionsGenerated.swift
-+++ b/Sources/Cli/subcommandDescriptionsGenerated.swift
-@@ -29,6 +29,7 @@ let subcommandDescriptions = [
-     ["  move-node-to-workspace", "Move the focused window to the specified workspace"],
-     ["  move-workspace-to-monitor", "Move workspace to monitor targeted by relative direction, by order, or by pattern."],
-     ["  move", "Move the focused window in the given direction"],
-+    ["  position", "Float the focused window and place it at a preset position on the screen"],
-     ["  reload-config", "Reload currently active config"],
-     ["  resize", "Resize the focused window"],
-     ["  split", "Split focused window"],
+
 diff --git a/Sources/Common/cmdArgs/cmdArgsManifest.swift b/Sources/Common/cmdArgs/cmdArgsManifest.swift
-index df193a6d..4ad8ff93 100644
 --- a/Sources/Common/cmdArgs/cmdArgsManifest.swift
 +++ b/Sources/Common/cmdArgs/cmdArgsManifest.swift
-@@ -30,6 +30,7 @@ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
+@@ -36,6 +36,7 @@
      case moveNodeToWorkspace = "move-node-to-workspace"
      case moveWorkspaceToMonitor = "move-workspace-to-monitor"
      case newWindowOrOpen = "new-window-or-open"
 +    case position
      case reloadConfig = "reload-config"
      case resize
-     case split
-@@ -107,6 +108,8 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
+     case runCallback = "run-callback"
+@@ -128,6 +129,8 @@
                  result["move-workspace-to-display"] = SubCommandParser(MoveWorkspaceToMonitorCmdArgs.init)
              case .newWindowOrOpen:
                  result[kind.rawValue] = SubCommandParser(NewWindowOrOpenCmdArgs.init)
@@ -152,9 +137,9 @@ index df193a6d..4ad8ff93 100644
              case .reloadConfig:
                  result[kind.rawValue] = SubCommandParser(ReloadConfigCmdArgs.init)
              case .resize:
+
 diff --git a/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift b/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift
 new file mode 100644
-index 00000000..11111111
 --- /dev/null
 +++ b/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift
 @@ -0,0 +1,27 @@
@@ -185,23 +170,9 @@ index 00000000..11111111
 +        return .init(.failure("Invalid placement '\(i.arg)'. Expected 'center'"), advanceBy: 1)
 +    }
 +}
-diff --git a/Sources/Common/cmdHelpGenerated.swift b/Sources/Common/cmdHelpGenerated.swift
-index 277752bf..967f2a83 100644
---- a/Sources/Common/cmdHelpGenerated.swift
-+++ b/Sources/Common/cmdHelpGenerated.swift
-@@ -126,6 +126,9 @@ let new_window_or_open_help_generated = """
- let reload_config_help_generated = """
-     USAGE: reload-config [-h|--help] [--no-gui] [--dry-run]
-     """
-+let position_help_generated = """
-+    USAGE: position [-h|--help] [--window-id <window-id>] (center)
-+    """
- let resize_help_generated = """
-     USAGE: resize [-h|--help] [--window-id <window-id>] (smart|smart-opposite|width|height) [+|-]<number>
-     """
+
 diff --git a/docs/aerospace-position.adoc b/docs/aerospace-position.adoc
 new file mode 100644
-index 00000000..5ae1ed5f
 --- /dev/null
 +++ b/docs/aerospace-position.adoc
 @@ -0,0 +1,37 @@
@@ -242,4 +213,3 @@ index 00000000..5ae1ed5f
 +
 +// =========================================================== Footer
 +include::util/man-footer.adoc[]
-

@@ -5,7 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> Current `Hyprspace` patches are based on AeroSpace v0.20.3-Beta
+> Current `Hyprspace` patches are based on AeroSpace v0.21.1-Beta
+
+## [0.3.0] - 2026-07-06
+
+### Changed
+
+- Rebased Hyprspace patches onto AeroSpace v0.21.1-Beta.
+- Adopted AeroSpace v0.21.1 command parsing and exit-code APIs for Hyprspace commands.
+
+### Fixed
+
+- Fresh installs now show a clear "run `hyprspace init` first" gate for server-backed commands when no config exists, while `--help`, `--version`, `--accessibility-status`, and `init` still work before setup.
+- Release builds now use Swift 6-compatible accessibility imports.
 
 ## [0.2.3] - 2026-06-08
 
@@ -151,4 +163,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.1.7]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.6...v0.1.7
 [0.1.1–0.1.4]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.1.0...v0.1.4
 [0.1.0]: https://github.com/PeachlifeAB/hyprspace-core/releases/tag/v0.1.0
+[0.3.0]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/PeachlifeAB/hyprspace-core/compare/v0.2.2...v0.2.3

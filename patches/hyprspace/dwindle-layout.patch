@@ -1,20 +1,42 @@
 # Summary: Implements a Hyprland-style dwindle insertion strategy based on the most recently used tiled window.
 
+diff --git a/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift b/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift
+index dd56aa09..9f77414a 100644
+--- a/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift
++++ b/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift
+@@ -37,9 +37,12 @@ func moveWindowToWorkspace(_ window: Window, _ targetWorkspace: Workspace, _ io:
+                 .succ(io.err("Window '\(window.windowId)' already belongs to workspace '\(targetWorkspace.name)'. Tip: use --fail-if-noop to exit with non-zero code"))
+         }
+     }
+-    let targetContainer: NonLeafTreeNodeObject = window.isFloating
+-        ? targetWorkspace.floatingWindowsContainer
+-        : targetWorkspace.rootTilingContainer
+-    window.bind(to: targetContainer, adaptiveWeight: WEIGHT_AUTO, index: index)
++    if window.isFloating {
++        window.bind(to: targetWorkspace.floatingWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: index)
++    } else if index == INDEX_BIND_LAST {
++        window.bindAsNewTilingWindow(on: targetWorkspace)
++    } else {
++        window.bind(to: targetWorkspace.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: index)
++    }
+     return .from(bool: focusFollowsWindow ? window.focusWindow() : true)
+ }
 diff --git a/Sources/AppBundle/tree/MacWindow.swift b/Sources/AppBundle/tree/MacWindow.swift
+index 9a1912c9..d3bb9890 100644
 --- a/Sources/AppBundle/tree/MacWindow.swift
 +++ b/Sources/AppBundle/tree/MacWindow.swift
-@@ -210,9 +210,17 @@
+@@ -199,9 +199,17 @@ final class MacWindow: Window {
  extension Window {
      @MainActor
-     func relayoutWindow(on workspace: Workspace, forceTile: Bool = false) async throws {
+     func relayoutWindow(on workspace: Workspace, _ cm: CancellationMode, forceTile: Bool = false) async throws {
 -        let data = forceTile
 -            ? unbindAndGetBindingDataForNewTilingWindow(workspace, window: self)
--            : try await unbindAndGetBindingDataForNewWindow(self.asMacWindow().windowId, self.asMacWindow().macApp, workspace, window: self)
+-            : try await unbindAndGetBindingDataForNewWindow(self.asMacWindow().windowId, self.asMacWindow().macApp, workspace, window: self, cm)
 +        if forceTile {
 +            bindAsNewTilingWindow(on: workspace)
 +            return
 +        }
-+        let data = try await unbindAndGetBindingDataForNewWindow(self.asMacWindow().windowId, self.asMacWindow().macApp, workspace, window: self)
++        let data = try await unbindAndGetBindingDataForNewWindow(self.asMacWindow().windowId, self.asMacWindow().macApp, workspace, window: self, cm)
 +        bind(to: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
 +    }
 +
@@ -24,7 +46,7 @@ diff --git a/Sources/AppBundle/tree/MacWindow.swift b/Sources/AppBundle/tree/Mac
          bind(to: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
      }
  }
-@@ -232,8 +240,34 @@
+@@ -221,8 +229,34 @@ private func unbindAndGetBindingDataForNewWindow(_ windowId: UInt32, _ macApp: M
  @MainActor
  private func unbindAndGetBindingDataForNewTilingWindow(_ workspace: Workspace, window: Window?) -> BindingData {
      window?.unbindFromParent() // It's important to unbind to get correct data from below
@@ -60,8 +82,8 @@ diff --git a/Sources/AppBundle/tree/MacWindow.swift b/Sources/AppBundle/tree/Mac
          return BindingData(
              parent: tilingParent,
              adaptiveWeight: WEIGHT_AUTO,
-
 diff --git a/Sources/AppBundle/tree/normalizeContainers.swift b/Sources/AppBundle/tree/normalizeContainers.swift
+index 931b028f..20b6fdac 100644
 --- a/Sources/AppBundle/tree/normalizeContainers.swift
 +++ b/Sources/AppBundle/tree/normalizeContainers.swift
 @@ -1,3 +1,5 @@
@@ -70,7 +92,7 @@ diff --git a/Sources/AppBundle/tree/normalizeContainers.swift b/Sources/AppBundl
  extension Workspace {
      @MainActor func normalizeContainers() {
          rootTilingContainer.unbindEmptyAndAutoFlatten() // Beware! rootTilingContainer may change after this line of code
-@@ -24,8 +26,18 @@
+@@ -24,8 +26,18 @@ extension TilingContainer {
              for child in children {
                  (child as? TilingContainer)?.unbindEmptyAndAutoFlatten()
              }
@@ -91,9 +113,9 @@ diff --git a/Sources/AppBundle/tree/normalizeContainers.swift b/Sources/AppBundl
              }
          }
      }
-
 diff --git a/Sources/AppBundleTests/tree/DwindleBugTest.swift b/Sources/AppBundleTests/tree/DwindleBugTest.swift
 new file mode 100644
+index 00000000..311916f8
 --- /dev/null
 +++ b/Sources/AppBundleTests/tree/DwindleBugTest.swift
 @@ -0,0 +1,68 @@
@@ -112,11 +134,11 @@ new file mode 100644
 +
 +        // 1. Insert two windows
 +        let w1 = TestWindow.new(id: 1, parent: macosPopupWindowsContainer)
-+        try await w1.relayoutWindow(on: workspace, forceTile: true)
++        try await w1.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +        w1.markAsMostRecentChild()
 +        
 +        let w2 = TestWindow.new(id: 2, parent: macosPopupWindowsContainer)
-+        try await w2.relayoutWindow(on: workspace, forceTile: true)
++        try await w2.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +        w2.markAsMostRecentChild()
 +        
 +        // Root should be H, 2 windows
@@ -125,7 +147,7 @@ new file mode 100644
 +        
 +        // 2. Insert 3rd window (splits W2, creating V container)
 +        let w3 = TestWindow.new(id: 3, parent: macosPopupWindowsContainer)
-+        try await w3.relayoutWindow(on: workspace, forceTile: true)
++        try await w3.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +        w3.markAsMostRecentChild()
 +        
 +        XCTAssertEqual(workspace.rootTilingContainer.orientation, .h)
@@ -151,12 +173,12 @@ new file mode 100644
 +        
 +        // 5. Insert new window
 +        let w4 = TestWindow.new(id: 4, parent: macosPopupWindowsContainer)
-+        try await w4.relayoutWindow(on: workspace, forceTile: true)
++        try await w4.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +        w4.markAsMostRecentChild()
 +        
 +        // 6. Insert another window
 +        let w5 = TestWindow.new(id: 5, parent: macosPopupWindowsContainer)
-+        try await w5.relayoutWindow(on: workspace, forceTile: true)
++        try await w5.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +        w5.markAsMostRecentChild()
 +        
 +        // Will they be V or H?
@@ -165,9 +187,9 @@ new file mode 100644
 +        XCTAssertEqual(workspace.rootTilingContainer.orientation, .h, "First split should ALWAYS be horizontal")
 +    }
 +}
-
 diff --git a/Sources/AppBundleTests/tree/DwindleLayoutTest.swift b/Sources/AppBundleTests/tree/DwindleLayoutTest.swift
 new file mode 100644
+index 00000000..f3330ecd
 --- /dev/null
 +++ b/Sources/AppBundleTests/tree/DwindleLayoutTest.swift
 @@ -0,0 +1,197 @@
@@ -191,7 +213,7 @@ new file mode 100644
 +
 +        // 2. Insert w2 (should just append to root since it only has 1 child)
 +        let w2 = TestWindow.new(id: 2, parent: macosPopupWindowsContainer)
-+        try await w2.relayoutWindow(on: workspace, forceTile: true)
++        try await w2.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +        w2.markAsMostRecentChild()
 +
 +        // Root (H) -> [W1, W2]
@@ -201,7 +223,7 @@ new file mode 100644
 +        // 3. Insert w3 (w2 is MRU). Since root has 2 children, w3 should split w2.
 +        // w2's parent is root (H). So new container is (V).
 +        let w3 = TestWindow.new(id: 3, parent: macosPopupWindowsContainer)
-+        try await w3.relayoutWindow(on: workspace, forceTile: true)
++        try await w3.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +        w3.markAsMostRecentChild()
 +
 +        // Root (H) -> [W1, V-Container[W2, W3]]
@@ -215,7 +237,7 @@ new file mode 100644
 +        // 4. Insert w4 (w3 is MRU). w3's parent is V-Container (which has 2 children).
 +        // So w4 should split w3 into a new H-Container.
 +        let w4 = TestWindow.new(id: 4, parent: macosPopupWindowsContainer)
-+        try await w4.relayoutWindow(on: workspace, forceTile: true)
++        try await w4.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +        w4.markAsMostRecentChild()
 +
 +        // Root (H) -> [W1, V-Container[W2, H-Container[W3, W4]]]
@@ -235,7 +257,7 @@ new file mode 100644
 +        // Add 6 windows sequentially, always focusing the newly added window.
 +        for id in 1...6 {
 +            let w = TestWindow.new(id: UInt32(id), parent: macosPopupWindowsContainer)
-+            try await w.relayoutWindow(on: workspace, forceTile: true)
++            try await w.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +            w.markAsMostRecentChild()
 +        }
 +        
@@ -267,7 +289,7 @@ new file mode 100644
 +        // Setup 4 windows (H -> [W1, V -> [W2, H -> [W3, W4]]])
 +        for id in 1...4 {
 +            let w = TestWindow.new(id: UInt32(id), parent: macosPopupWindowsContainer)
-+            try await w.relayoutWindow(on: workspace, forceTile: true)
++            try await w.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +            w.markAsMostRecentChild()
 +        }
 +
@@ -312,11 +334,11 @@ new file mode 100644
 +        let workspace = Workspace.get(byName: name)
 +
 +        let w1 = TestWindow.new(id: 1, parent: macosPopupWindowsContainer)
-+        try await w1.relayoutWindow(on: workspace, forceTile: true)
++        try await w1.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +        w1.markAsMostRecentChild()
 +
 +        let w2 = TestWindow.new(id: 2, parent: macosPopupWindowsContainer)
-+        try await w2.relayoutWindow(on: workspace, forceTile: true)
++        try await w2.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +        w2.markAsMostRecentChild()
 +
 +        let floating = TestWindow.new(id: 99, parent: workspace)
@@ -324,7 +346,7 @@ new file mode 100644
 +
 +        let w3 = TestWindow.new(id: 3, parent: workspace)
 +        w3.markAsMostRecentChild()
-+        try await w3.relayoutWindow(on: workspace, forceTile: true)
++        try await w3.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +
 +        assertEquals(
 +            workspace.rootTilingContainer.layoutDescription,
@@ -344,17 +366,17 @@ new file mode 100644
 +        let target = Workspace.get(byName: "target")
 +
 +        let w1 = TestWindow.new(id: 1, parent: macosPopupWindowsContainer)
-+        try await w1.relayoutWindow(on: target, forceTile: true)
++        try await w1.relayoutWindow(on: target, .nonCancellable, forceTile: true)
 +        w1.markAsMostRecentChild()
 +
 +        let w2 = TestWindow.new(id: 2, parent: macosPopupWindowsContainer)
-+        try await w2.relayoutWindow(on: target, forceTile: true)
++        try await w2.relayoutWindow(on: target, .nonCancellable, forceTile: true)
 +        w2.markAsMostRecentChild()
 +
 +        let moving = TestWindow.new(id: 3, parent: source.rootTilingContainer)
 +        moving.markAsMostRecentChild()
 +
-+        XCTAssertTrue(moveWindowToWorkspace(moving, target, CmdIo(stdin: .emptyStdin), focusFollowsWindow: false, failIfNoop: false))
++        assertEquals(moveWindowToWorkspace(moving, target, CmdIoImpl.emptyStdinIgnoringOut, focusFollowsWindow: false, failIfNoop: false), .succ)
 +
 +        assertEquals(
 +            target.rootTilingContainer.layoutDescription,
@@ -368,22 +390,3 @@ new file mode 100644
 +        )
 +    }
 +}
-
-diff --git a/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift b/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift
---- a/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift
-+++ b/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift
-@@ -36,7 +36,12 @@
-         }
-         return !failIfNoop
-     }
--    let targetContainer: NonLeafTreeNodeObject = window.isFloating ? targetWorkspace : targetWorkspace.rootTilingContainer
--    window.bind(to: targetContainer, adaptiveWeight: WEIGHT_AUTO, index: index)
-+    if window.isFloating {
-+        window.bind(to: targetWorkspace, adaptiveWeight: WEIGHT_AUTO, index: index)
-+    } else if index == INDEX_BIND_LAST {
-+        window.bindAsNewTilingWindow(on: targetWorkspace)
-+    } else {
-+        window.bind(to: targetWorkspace.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: index)
-+    }
-     return focusFollowsWindow ? window.focusWindow() : true
- }

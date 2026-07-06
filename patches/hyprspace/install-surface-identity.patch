@@ -1,9 +1,9 @@
-# Summary: Renames the install and release surfaces to Hyprspace: package product, app bundle names, shell completions, Homebrew casks, and release artifacts.
+# Summary: Renames the install and release surfaces to Hyprspace: pkg product, app bundle names, shell completions, Homebrew casks, and release artifacts.
 
 diff --git a/AeroSpace.xcodeproj/project.pbxproj b/AeroSpace.xcodeproj/project.pbxproj
 --- a/AeroSpace.xcodeproj/project.pbxproj
 +++ b/AeroSpace.xcodeproj/project.pbxproj
-@@ -233,7 +233,7 @@
+@@ -235,7 +235,7 @@
  			buildSettings = {
  				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
  				CODE_SIGN_ENTITLEMENTS = resources/AeroSpace.entitlements;
@@ -12,7 +12,7 @@ diff --git a/AeroSpace.xcodeproj/project.pbxproj b/AeroSpace.xcodeproj/project.p
  				COMBINE_HIDPI_IMAGES = YES;
  				GENERATE_INFOPLIST_FILE = YES;
  				INFOPLIST_KEY_LSUIElement = YES;
-@@ -242,9 +242,9 @@
+@@ -244,9 +244,9 @@
  					"@executable_path/../Frameworks",
  				);
  				MACOSX_DEPLOYMENT_TARGET = 13.0;
@@ -25,7 +25,7 @@ diff --git a/AeroSpace.xcodeproj/project.pbxproj b/AeroSpace.xcodeproj/project.p
  				SDKROOT = macosx;
  				SWIFT_VERSION = 6.2;
  			};
-@@ -310,7 +310,7 @@
+@@ -312,7 +312,7 @@
  			buildSettings = {
  				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
  				CODE_SIGN_ENTITLEMENTS = resources/AeroSpace.entitlements;
@@ -34,7 +34,7 @@ diff --git a/AeroSpace.xcodeproj/project.pbxproj b/AeroSpace.xcodeproj/project.p
  				COMBINE_HIDPI_IMAGES = YES;
  				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
  				GENERATE_INFOPLIST_FILE = YES;
-@@ -320,9 +320,9 @@
+@@ -322,9 +322,9 @@
  					"@executable_path/../Frameworks",
  				);
  				MACOSX_DEPLOYMENT_TARGET = 13.0;
@@ -51,7 +51,7 @@ diff --git a/AeroSpace.xcodeproj/project.pbxproj b/AeroSpace.xcodeproj/project.p
 diff --git a/Package.swift b/Package.swift
 --- a/Package.swift
 +++ b/Package.swift
-@@ -10,7 +10,7 @@
+@@ -15,7 +15,7 @@
      platforms: [.macOS(.v13)],
      // Products define the executables and libraries a package produces, making them visible to other packages.
      products: [
@@ -65,9 +65,10 @@ diff --git a/build-release.sh b/build-release.sh
 --- a/build-release.sh
 +++ b/build-release.sh
 @@ -1,129 +1,10 @@
- #!/bin/bash
+-#!/usr/bin/env bash
 -cd "$(dirname "$0")"
 -source ./script/setup.sh
++#!/bin/bash
 +set -euo pipefail
  
 -build_version="0.0.0-SNAPSHOT"
@@ -89,7 +90,7 @@ diff --git a/build-release.sh b/build-release.sh
 -### BUILD ###
 -#############
 -
--./build-docs.sh
+-./build-docs.sh --release
 -./build-shell-completion.sh
 -
 -./generate.sh
@@ -205,7 +206,7 @@ diff --git a/build-release.sh b/build-release.sh
 diff --git a/build-shell-completion.sh b/build-shell-completion.sh
 --- a/build-shell-completion.sh
 +++ b/build-shell-completion.sh
-@@ -14,12 +14,20 @@
+@@ -14,7 +14,15 @@
      --fish-script .shell-completion/fish/aerospace.fish \
      --bash-script .shell-completion/bash/aerospace
  
@@ -217,24 +218,18 @@ diff --git a/build-shell-completion.sh b/build-shell-completion.sh
 +perl -0pi -e 's/\baerospace\b/hyprspace/g; s/_aerospace/_hyprspace/g' .shell-completion/fish/hyprspace.fish
 +perl -0pi -e 's/\baerospace\b/hyprspace/g; s/_aerospace/_hyprspace/g' .shell-completion/bash/hyprspace
 +
- if ! (not-outdated-bash --version | grep -q 'version 5'); then
--    echo "bash version is too old. At least version 5 is required" > /dev/stderr
-+    echo "bash version is too old. At least version 5 is required" >/dev/stderr
-     exit 1
- fi
- 
  # Check basic syntax
 -zsh -c 'autoload -Uz compinit; compinit; source ./.shell-completion/zsh/_aerospace'
 -fish -c 'source ./.shell-completion/fish/aerospace.fish'
--not-outdated-bash -c 'source ./.shell-completion/bash/aerospace'
+-bash -c 'source ./.shell-completion/bash/aerospace'
 +zsh -c 'autoload -Uz compinit; compinit; source ./.shell-completion/zsh/_hyprspace'
 +fish -c 'source ./.shell-completion/fish/hyprspace.fish'
-+not-outdated-bash -c 'source ./.shell-completion/bash/hyprspace'
++bash -c 'source ./.shell-completion/bash/hyprspace'
 
 diff --git a/generate.sh b/generate.sh
 --- a/generate.sh
 +++ b/generate.sh
-@@ -3,25 +3,53 @@
+@@ -3,7 +3,13 @@
  source ./script/setup.sh
  
  export XCODEGEN_AEROSPACE_CODE_SIGN_IDENTITY="aerospace-codesign-certificate"
@@ -249,55 +244,15 @@ diff --git a/generate.sh b/generate.sh
  generate_xcodeproj=1
  generate_cmd_help=1
  generate_git_hash=0
- all=0
- while test $# -gt 0; do
-     case $1 in
--        --build-version) build_version="$2"; shift 2 ;;
--        --codesign-identity) XCODEGEN_AEROSPACE_CODE_SIGN_IDENTITY="$2"; shift 2 ;;
--        --generate-git-hash) generate_git_hash=1; shift 1;;
--        --ignore-cmd-help) generate_cmd_help=0; shift 1 ;;
--        --ignore-xcodeproj) generate_xcodeproj=0; shift 1 ;;
--        --all) all=1; shift 1 ;;
--        *) echo "Unknown option $1"; exit 1 ;;
-+    --build-version)
-+        build_version="$2"
-+        shift 2
-+        ;;
-+    --codesign-identity)
-+        XCODEGEN_AEROSPACE_CODE_SIGN_IDENTITY="$2"
-+        shift 2
-+        ;;
-+    --generate-git-hash)
-+        generate_git_hash=1
-+        shift 1
-+        ;;
-+    --ignore-shell-parser) shift 1 ;;
-+    --ignore-cmd-help)
-+        generate_cmd_help=0
-+        shift 1
-+        ;;
-+    --ignore-xcodeproj)
-+        generate_xcodeproj=0
-+        shift 1
-+        ;;
-+    --all)
-+        all=1
-+        shift 1
-+        ;;
-+    *)
-+        echo "Unknown option $1"
-+        exit 1
-+        ;;
-     esac
- done
- 
- if test $all = 1 && test $generate_xcodeproj = 0; then
--    echo "./generate.sh: --all and --ignore-xcodeproj are conflicting" > /dev/stderr
-+    echo "./generate.sh: --all and --ignore-xcodeproj are conflicting" >/dev/stderr
-     exit 1
- fi
- 
-@@ -35,14 +63,22 @@
+@@ -12,6 +18,7 @@
+         --build-version) build_version="$2"; shift 2 ;;
+         --codesign-identity) XCODEGEN_AEROSPACE_CODE_SIGN_IDENTITY="$2"; shift 2 ;;
+         --generate-git-hash) generate_git_hash=1; shift 1;;
++        --ignore-shell-parser) shift 1 ;;
+         --ignore-cmd-help) generate_cmd_help=0; shift 1 ;;
+         --ignore-xcodeproj) generate_xcodeproj=0; shift 1 ;;
+         *) echo "Unknown option $1"; exit 1 ;;
+@@ -23,14 +30,22 @@
      ./script/generate-cmd-help.sh
  fi
  
@@ -322,7 +277,7 @@ diff --git a/generate.sh b/generate.sh
              continue
          fi
          subcommand=$(basename $file | sed 's/^aerospace-//' | sed 's/\.adoc$//')
-@@ -51,7 +87,7 @@
+@@ -39,7 +54,7 @@
      done
  }
  
@@ -331,7 +286,7 @@ diff --git a/generate.sh b/generate.sh
  // FILE IS GENERATED FROM docs/aerospace-*.adoc files
  // TO REGENERATE THE FILE RUN generate.sh
  
-@@ -60,10 +96,10 @@
+@@ -48,10 +63,10 @@
  ]
  EOF
  
@@ -586,7 +541,7 @@ diff --git a/script/build-brew-cask.sh b/script/build-brew-cask.sh
 +  desc "Tiling window manager based on AeroSpace"
 +  homepage "https://hyprspace.net/"
  
--  depends_on macos: ">= :ventura" # macOS 13
+-  depends_on macos: :ventura # macOS 13
 +  depends_on macos: :sequoia
 +  depends_on formula: "gum"
 +

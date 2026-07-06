@@ -13,7 +13,7 @@ The active stack is the ordered list in `patches/series`. Each patch should prov
   **runtime identity separation** — Separates runtime app identity, socket surfaces, and related temp-path behavior from upstream AeroSpace naming.
 
 - `hyprspace/install-surface-identity.patch`
-  **install surface identity** — Renames the install and release surfaces to Hyprspace: package product, app bundle names, shell completions, Homebrew casks, and release artifacts.
+  **install surface identity** — Renames the install and release surfaces to Hyprspace: pkg product, app bundle names, shell completions, Homebrew casks, and release artifacts.
 
 - `hyprspace/fix-grep-ansi-in-generate.patch`
   **fix grep ansi in generate** — Strip ANSI color escapes from grep output in generate.sh so subcommand descriptions render without escape sequences.

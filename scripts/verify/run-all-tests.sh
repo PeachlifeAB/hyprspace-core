@@ -114,6 +114,7 @@ cd "$ROOT_DIR"
 
 if [[ "${SKIP_PREFLIGHT:-0}" != "1" ]]; then
     bash scripts/verify/patch-stack-preflight.sh
+    bash scripts/patch/verify-generated-patches.sh
 fi
 
 if [[ "${RUN_ALL_TESTS:-0}" == "1" ]]; then

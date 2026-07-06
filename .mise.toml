@@ -26,6 +26,10 @@ run = "./scripts/patch/regenerate-patch.sh"
 description = "Run scripts/patch/validate-patches.sh. Validate the patch stack and related generated docs."
 run = "./scripts/patch/validate-patches.sh"
 
+[tasks."patch:verify-generated"]
+description = "Run scripts/patch/verify-generated-patches.sh. Refresh workspace and verify generated patches are committed."
+run = "./scripts/patch/verify-generated-patches.sh"
+
 [tasks."release:preflight"]
 description = "Run scripts/release/pre-release-checks.sh. Validate release prerequisites for a version."
 run = "./scripts/release/pre-release-checks.sh"

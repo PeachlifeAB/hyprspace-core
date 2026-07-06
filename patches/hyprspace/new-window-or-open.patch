@@ -2,7 +2,6 @@
 
 diff --git a/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift b/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift
 new file mode 100644
-index 00000000..44bac8f1
 --- /dev/null
 +++ b/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift
 @@ -0,0 +1,45 @@
@@ -51,9 +50,9 @@ index 00000000..44bac8f1
 +        return true
 +    }
 +}
+
 diff --git a/Sources/AppBundleTests/command/NewWindowOrOpenCommandTest.swift b/Sources/AppBundleTests/command/NewWindowOrOpenCommandTest.swift
 new file mode 100644
-index 00000000..63c6dcf2
 --- /dev/null
 +++ b/Sources/AppBundleTests/command/NewWindowOrOpenCommandTest.swift
 @@ -0,0 +1,10 @@
@@ -63,15 +62,15 @@ index 00000000..63c6dcf2
 +
 +final class NewWindowOrOpenCommandTest: XCTestCase {
 +    func testParse() {
-+        testParseCommandSucc("new-window-or-open Ghostty", NewWindowOrOpenCmdArgs(rawArgs: []).copy(\.appName, .initialized("Ghostty")))
++        testParseSingleCommandSucc("new-window-or-open Ghostty", NewWindowOrOpenCmdArgs(rawArgs: []).copy(\.appName, .initialized("Ghostty")))
 +        assertEquals(parseCommand("new-window-or-open").errorOrNil, "ERROR: Argument '<app-name>' is mandatory")
 +    }
 +}
+
 diff --git a/Sources/AppBundle/command/cmdManifest.swift b/Sources/AppBundle/command/cmdManifest.swift
-index af7c3e34..85c955d6 100644
 --- a/Sources/AppBundle/command/cmdManifest.swift
 +++ b/Sources/AppBundle/command/cmdManifest.swift
-@@ -58,6 +58,8 @@ extension CmdArgs {
+@@ -70,6 +70,8 @@
                  command = MoveNodeToWorkspaceCommand(args: self as! MoveNodeToWorkspaceCmdArgs)
              case .moveWorkspaceToMonitor:
                  command = MoveWorkspaceToMonitorCommand(args: self as! MoveWorkspaceToMonitorCmdArgs)
@@ -80,19 +79,19 @@ index af7c3e34..85c955d6 100644
              case .reloadConfig:
                  command = ReloadConfigCommand(args: self as! ReloadConfigCmdArgs)
              case .resize:
+
 diff --git a/Sources/Common/cmdArgs/cmdArgsManifest.swift b/Sources/Common/cmdArgs/cmdArgsManifest.swift
-index ddacd836..df193a6d 100644
 --- a/Sources/Common/cmdArgs/cmdArgsManifest.swift
 +++ b/Sources/Common/cmdArgs/cmdArgsManifest.swift
-@@ -29,6 +29,7 @@ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
+@@ -35,6 +35,7 @@
      case moveNodeToMonitor = "move-node-to-monitor"
      case moveNodeToWorkspace = "move-node-to-workspace"
      case moveWorkspaceToMonitor = "move-workspace-to-monitor"
 +    case newWindowOrOpen = "new-window-or-open"
      case reloadConfig = "reload-config"
      case resize
-     case split
-@@ -104,6 +105,8 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
+     case runCallback = "run-callback"
+@@ -125,6 +126,8 @@
                  result[kind.rawValue] = SubCommandParser(parseWorkspaceToMonitorCmdArgs)
                  // deprecated
                  result["move-workspace-to-display"] = SubCommandParser(MoveWorkspaceToMonitorCmdArgs.init)
@@ -101,9 +100,9 @@ index ddacd836..df193a6d 100644
              case .reloadConfig:
                  result[kind.rawValue] = SubCommandParser(ReloadConfigCmdArgs.init)
              case .resize:
+
 diff --git a/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift b/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift
 new file mode 100644
-index 00000000..33333333
 --- /dev/null
 +++ b/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift
 @@ -0,0 +1,17 @@
@@ -124,22 +123,23 @@ index 00000000..33333333
 +    /*conforms*/ public var workspaceName: WorkspaceName?
 +    public var appName: Lateinit<String> = .uninitialized
 +}
+
 diff --git a/Sources/Common/cmdHelpGenerated.swift b/Sources/Common/cmdHelpGenerated.swift
-index 62012af9..277752bf 100644
 --- a/Sources/Common/cmdHelpGenerated.swift
 +++ b/Sources/Common/cmdHelpGenerated.swift
-@@ -121,5 +121,8 @@ let move_help_generated = """
-     USAGE: move [-h|--help] [--window-id <window-id>] [--boundaries <boundary>] [--boundaries-action <boundary-action>] (left|down|up|right)
+@@ -133,6 +133,9 @@
+                 [--boundaries-action <boundary-action>] [--fail-if-fullscreen]
+                 [--fail-if-macos-native-fullscreen] (left|down|up|right)
      """
 +let new_window_or_open_help_generated = """
 +    USAGE: new-window-or-open <app-name>
 +    """
  let reload_config_help_generated = """
-     USAGE: reload-config [-h|--help] [--no-gui] [--dry-run]
+     USAGE: reload-config [-h|--help] [--no-gui] [--dry-run] [--warnings-as-errors]
      """
+
 diff --git a/docs/aerospace-new-window-or-open.adoc b/docs/aerospace-new-window-or-open.adoc
 new file mode 100644
-index 00000000..306389db
 --- /dev/null
 +++ b/docs/aerospace-new-window-or-open.adoc
 @@ -0,0 +1,14 @@
@@ -157,4 +157,3 @@ index 00000000..306389db
 +
 +If the target app is already running, open a new window by clicking the first File menu item containing "New".
 +If the app is not running, launch it by app name and return.
-

@@ -3,21 +3,28 @@
 diff --git a/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift b/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift
 --- a/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift
 +++ b/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift
-@@ -10,36 +10,22 @@
+@@ -9,37 +9,27 @@
+     /*conforms*/ let shouldRunInLightSession = false
  
      @MainActor
-     func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
+-    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
 -        guard let app = NSWorkspace.shared.runningApplications.first(where: {
 -            $0.localizedName == args.appName.val || $0.bundleIdentifier == args.appName.val
 -        }) else {
 -            let process = try Process.run(URL(filePath: "/usr/bin/open"), arguments: ["-a", args.appName.val])
 -            process.waitUntilExit()
 -            return process.terminationReason == .exit && process.terminationStatus == 0
-+        if let postOpenAction = args.postOpenAction {
-+            guard let windowId = try await NewWindowOrOpenFlow.performAndResolveWindowId(appName: args.appName.val, env: env, io: io) else {
-+                return false
++    func run(_ env: CmdEnv, _ io: CmdIo) async -> BinaryExitCode {
++        do {
++            if let postOpenAction = args.postOpenAction {
++                guard let windowId = try await NewWindowOrOpenFlow.performAndResolveWindowId(appName: args.appName.val, env: env, io: io) else {
++                    return .fail
++                }
++                return await run(postOpenAction, on: windowId, env, io)
 +            }
-+            return try await run(postOpenAction, on: windowId, env, io)
++            return .from(bool: try await NewWindowOrOpenFlow.perform(appName: args.appName.val, env: env, io: io))
++        } catch {
++            return .fail(io.err("\(error)"))
          }
 -        let appName = app.localizedName ?? args.appName.val
 -        app.activate(options: .activateIgnoringOtherApps)
@@ -41,16 +48,15 @@ diff --git a/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift b/Sourc
 -        result.waitUntilExit()
 -        guard result.terminationReason == .exit && result.terminationStatus == 0 else {
 -            return io.err("Could not open new window for '\(args.appName.val)'")
-+        return try await NewWindowOrOpenFlow.perform(appName: args.appName.val, env: env, io: io)
 +    }
 +
 +    @MainActor
-+    private func run(_ postOpenAction: NewWindowOrOpenCmdArgs.PostOpenAction, on windowId: UInt32, _ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
++    private func run(_ postOpenAction: NewWindowOrOpenCmdArgs.PostOpenAction, on windowId: UInt32, _ env: CmdEnv, _ io: CmdIo) async -> BinaryExitCode {
 +        switch postOpenAction {
 +            case .position(let placement):
 +                var positionArgs = PositionCmdArgs(rawArgs: [])
 +                positionArgs.targetPlacement = .initialized(placement)
-+                return try await PositionCommand(args: positionArgs.copy(\.windowId, windowId)).run(env, io)
++                return await PositionCommand(args: positionArgs.copy(\.windowId, windowId)).run(env, io)
          }
 -        return true
      }
@@ -63,18 +69,18 @@ diff --git a/Sources/AppBundleTests/command/NewWindowOrOpenCommandTest.swift b/S
  
  final class NewWindowOrOpenCommandTest: XCTestCase {
      func testParse() {
--        testParseCommandSucc("new-window-or-open Ghostty", NewWindowOrOpenCmdArgs(rawArgs: []).copy(\.appName, .initialized("Ghostty")))
+-        testParseSingleCommandSucc("new-window-or-open Ghostty", NewWindowOrOpenCmdArgs(rawArgs: []).copy(\.appName, .initialized("Ghostty")))
 -        assertEquals(parseCommand("new-window-or-open").errorOrNil, "ERROR: Argument '<app-name>' is mandatory")
 +        var expected = NewWindowOrOpenCmdArgs(rawArgs: [])
 +        expected.appName = .initialized("Calculator")
-+        testParseCommandSucc("new-window-or-open Calculator", expected)
++        testParseSingleCommandSucc("new-window-or-open Calculator", expected)
 +    }
 +
 +    func testParseWithPositionPreset() {
 +        var expected = NewWindowOrOpenCmdArgs(rawArgs: [])
 +        expected.appName = .initialized("Calculator")
 +        expected.postOpenAction = .position(.center)
-+        testParseCommandSucc("new-window-or-open Calculator position center", expected)
++        testParseSingleCommandSucc("new-window-or-open Calculator position center", expected)
 +    }
 +
 +    func testSelectNewWindowLeafPrefersRealFinderWindowOverServices() {
@@ -113,33 +119,39 @@ diff --git a/Sources/AppBundleTests/command/NewWindowOrOpenCommandTest.swift b/S
 diff --git a/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift b/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift
 --- a/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift
 +++ b/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift
-@@ -5,13 +5,36 @@
-     public init(rawArgs: StrArrSlice) { self.rawArgsForStrRepr = .init(rawArgs) }
-     public static let parser: CmdParser<Self> = cmdParser(
+@@ -1,17 +1,37 @@
+ import Foundation
+ 
+ public struct NewWindowOrOpenCmdArgs: CmdArgs {
+-    public let rawArgsForStrRepr: EquatableNoop<StrArrSlice>
+-    public init(rawArgs: StrArrSlice) { self.rawArgsForStrRepr = .init(rawArgs) }
+-    public static let parser: CmdParser<Self> = cmdParser(
++    /*conforms*/ public var commonState: CmdArgsCommonState
++    public init(rawArgs: StrArrSlice) { self.commonState = .init(rawArgs) }
++    public static let parser: CmdParser<Self> = .init(
          kind: .newWindowOrOpen,
 -        allowInConfig: false,
 -        help: "USAGE: aerospace new-window-or-open <app-name>",
-+        allowInConfig: true,
 +        help: "USAGE: aerospace new-window-or-open <app-name> [position <preset>]",
          flags: [:],
 -        posArgs: [newArgParser(\.appName, consumeStrCliArg, mandatoryArgPlaceholder: "<app-name>")]
 +        posArgs: [
-+            newArgParser(\.appName, consumeStrCliArg, mandatoryArgPlaceholder: "<app-name>"),
++            newMandatoryPosArgParser(\.appName, consumeStrCliArg, placeholder: "<app-name>"),
 +            ArgParser(\.postOpenAction, parsePostOpenAction),
 +        ]
      )
-+
+ 
+-    /*conforms*/ public var windowId: UInt32?
+-    /*conforms*/ public var workspaceName: WorkspaceName?
 +    public enum PostOpenAction: Equatable, Sendable {
 +        case position(PositionCmdArgs.Placement)
 +    }
- 
-     /*conforms*/ public var windowId: UInt32?
-     /*conforms*/ public var workspaceName: WorkspaceName?
++
      public var appName: Lateinit<String> = .uninitialized
 +    public var postOpenAction: PostOpenAction? = nil
  }
 +
-+private func parsePostOpenAction(i: ArgParserInput) -> ParsedCliArgs<NewWindowOrOpenCmdArgs.PostOpenAction?> {
++private func parsePostOpenAction(i: PosArgParserInput) -> ParsedCliArgs<NewWindowOrOpenCmdArgs.PostOpenAction?> {
 +    guard i.arg == "position" else {
 +        return .fail("Unknown post-open action '\(i.arg)'. Expected 'position'", advanceBy: 1)
 +    }
@@ -157,15 +169,15 @@ diff --git a/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift b/Sources/
 diff --git a/Sources/Common/cmdHelpGenerated.swift b/Sources/Common/cmdHelpGenerated.swift
 --- a/Sources/Common/cmdHelpGenerated.swift
 +++ b/Sources/Common/cmdHelpGenerated.swift
-@@ -121,7 +121,7 @@
-     USAGE: move [-h|--help] [--window-id <window-id>] [--boundaries <boundary>] [--boundaries-action <boundary-action>] (left|down|up|right)
+@@ -134,7 +134,7 @@
+                 [--fail-if-macos-native-fullscreen] (left|down|up|right)
      """
  let new_window_or_open_help_generated = """
 -    USAGE: new-window-or-open <app-name>
 +    USAGE: new-window-or-open <app-name> [position <preset>]
      """
  let reload_config_help_generated = """
-     USAGE: reload-config [-h|--help] [--no-gui] [--dry-run]
+     USAGE: reload-config [-h|--help] [--no-gui] [--dry-run] [--warnings-as-errors]
 
 diff --git a/Sources/AppBundle/command/impl/NewWindowOrOpenFlow.swift b/Sources/AppBundle/command/impl/NewWindowOrOpenFlow.swift
 new file mode 100644
@@ -232,7 +244,7 @@ new file mode 100644
 +    @MainActor
 +    private static func triggerNewWindow(for app: NSRunningApplication, env: CmdEnv, io: CmdIo) async throws -> Bool {
 +        guard let bundleId = app.bundleIdentifier else {
-+            return io.err("Could not find bundle ID for running application '\(app.localizedName ?? "Unknown app")'")
++            io.err("Could not find bundle ID for running application '\(app.localizedName ?? "Unknown app")'"); return false
 +        }
 +
 +        let callerWorkspace = focus.workspace
@@ -243,7 +255,7 @@ new file mode 100644
 +        }
 +
 +        guard let leaf = selectNewWindowLeaf(from: leaves, appName: app.localizedName ?? "") else {
-+            return io.err("No matching new-window menu item found for '\(app.localizedName ?? bundleId)'")
++            io.err("No matching new-window menu item found for '\(app.localizedName ?? bundleId)'"); return false
 +        }
 +        AXUIElementPerformAction(leaf.element, kAXPressAction as CFString)
 +        guard let newWindowId = try await waitForNewWindowId(appBundleId: bundleId, previousWindowIds: previousWindowIds),
@@ -270,11 +282,11 @@ new file mode 100644
 +            try process.run()
 +            process.waitUntilExit()
 +            guard process.terminationReason == .exit && process.terminationStatus == 0 else {
-+                return io.err("Failed to open application '\(appName)': open exited with status \(process.terminationStatus) and reason \(process.terminationReason.rawValue)")
++                io.err("Failed to open application '\(appName)': open exited with status \(process.terminationStatus) and reason \(process.terminationReason.rawValue)"); return false
 +            }
 +            return true
 +        } catch {
-+            return io.err("Failed to open application '\(appName)': \(error.localizedDescription)")
++            io.err("Failed to open application '\(appName)': \(error.localizedDescription)"); return false
 +        }
 +    }
 +

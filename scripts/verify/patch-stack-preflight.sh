@@ -25,6 +25,7 @@ require_cmd gpatch
 gpatch --version 2>&1 | head -1 | grep -qi 'GNU patch' || die "error: gpatch is not GNU patch"
 
 require_tracked "scripts/patch/validate-patches.sh"
+require_tracked "scripts/patch/verify-generated-patches.sh"
 require_tracked "scripts/patch/normalize-series-patches.sh"
 require_tracked "scripts/internal/generate-patches-doc.py"
 require_tracked "patches/series"

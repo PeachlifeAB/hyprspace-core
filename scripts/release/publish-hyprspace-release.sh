@@ -93,31 +93,12 @@ capture_zip_boundary() {
     fi
 }
 
-sync_live_release_patch_truth() {
-    local patch_name="hyprspace/install-surface-identity.patch"
-    local patch_path="patches/$patch_name"
-    local before_hash after_hash
-
-    if ! git -C "AeroSpace" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        echo "[info] AeroSpace checkout missing; skipping live release-patch sync"
-        return 0
-    fi
-
-    before_hash="$(shasum -a 256 "$patch_path" 2>/dev/null || echo missing)"
-    ./scripts/patch/regenerate-patch.sh "$patch_name" --add-file script/internal/build-release.sh
-    after_hash="$(shasum -a 256 "$patch_path" 2>/dev/null || echo missing)"
-
-    if [ "$before_hash" != "$after_hash" ]; then
-        git --no-pager diff -- "$patch_path" >&2 || true
-        echo "[clue] live AeroSpace release-surface edits existed only in the ephemeral checkout, not in patch truth." >&2
-        echo "[clue] if publish continued, refresh-workspace would wipe those edits before the build and you would ship stale release behavior." >&2
-        echo "[clue] commit $patch_path first, then rerun the release flow." >&2
-        die "live AeroSpace release-surface edits changed patch truth; commit $patch_path before rerunning the release flow"
-    fi
-}
-
 commit_version_file() {
     git add version.txt CHANGELOG.md
+    if git diff --cached --quiet -- version.txt CHANGELOG.md; then
+        echo "[info] release metadata already committed for $TAG"
+        return 0
+    fi
     git commit -m "Release $TAG"
 }
 
@@ -164,8 +145,8 @@ if [[ -z "${SKIP_REFRESH_WORKSPACE:-}" ]]; then
     step "refreshing patched AeroSpace checkout from patch truth"
     ./scripts/patch/refresh-workspace.sh
 
-    step "syncing live release patch truth"
-    sync_live_release_patch_truth
+    step "verifying generated patch truth"
+    VERIFY_GENERATED_PATCHES_SKIP_REFRESH=1 ./scripts/patch/verify-generated-patches.sh
 else
     step "skipping workspace refresh (SKIP_REFRESH_WORKSPACE set by upgrade-upstream)"
 fi

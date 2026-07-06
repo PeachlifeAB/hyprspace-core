@@ -34,9 +34,18 @@ else
         SIGN_ID="-"
     fi
 
+    build_bash="${HYPRSPACE_BUILD_BASH:-}"
+    if [ -z "$build_bash" ]; then
+        if [ -x /opt/homebrew/bin/bash ]; then
+            build_bash=/opt/homebrew/bin/bash
+        else
+            build_bash=bash
+        fi
+    fi
+
     # Bypass strict ruby version dependencies and missing shell-parsers using flags
     # Allow dirty tree because we are actively hacking on this fork and testing.
-    ./script/internal/build-release.sh \
+    "$build_bash" ./script/internal/build-release.sh \
         --build-version "$DEV_BUILD_VERSION" \
         --skip-docs \
         --skip-shell-parser \

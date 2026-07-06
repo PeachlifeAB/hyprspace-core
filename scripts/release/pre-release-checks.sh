@@ -173,4 +173,5 @@ assert_changelog_mentions_version
 assert_manifest_sources_exist
 assert_patch_series_integrity
 assert_patches_doc_current
+./scripts/patch/verify-generated-patches.sh
 assert_brew_tap_reachable

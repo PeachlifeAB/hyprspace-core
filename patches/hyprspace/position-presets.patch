@@ -3,6 +3,20 @@
 diff --git a/Sources/AppBundle/command/impl/PositionCommand.swift b/Sources/AppBundle/command/impl/PositionCommand.swift
 --- a/Sources/AppBundle/command/impl/PositionCommand.swift
 +++ b/Sources/AppBundle/command/impl/PositionCommand.swift
+@@ -7,10 +7,10 @@
+     var shouldResetClosedWindowsCache: Bool = false
+     var shouldRefreshModel: Bool = false
+ 
+-    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
+-        guard let target = args.resolveTargetOrReportError(env, io) else { return false }
++    func run(_ env: CmdEnv, _ io: CmdIo) async -> BinaryExitCode {
++        guard let target = args.resolveTargetOrReportError(env, io) else { return .fail }
+         guard let window = target.windowOrNil else {
+-            return io.err("No window in focus")
++            return .fail(io.err("No window in focus"))
+         }
+ 
+         if !window.isFloating {
 @@ -20,10 +20,33 @@
          let monitor = window.nodeMonitor ?? target.workspace.workspaceMonitor
          let rect = monitor.visibleRect
@@ -41,6 +55,14 @@ diff --git a/Sources/AppBundle/command/impl/PositionCommand.swift b/Sources/AppB
  
          let size = CGSize(width: targetWidth, height: targetHeight)
          let topLeft = CGPoint(x: targetX, y: targetY)
+@@ -31,6 +54,6 @@
+         window.setAxFrame(topLeft, size)
+         window.lastFloatingSize = size
+ 
+-        return true
++        return .succ
+     }
+ }
 
 diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/AppBundleTests/command/PositionCommandTest.swift
 --- a/Sources/AppBundleTests/command/PositionCommandTest.swift
@@ -48,29 +70,29 @@ diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/
 @@ -7,6 +7,124 @@
          var expected = PositionCmdArgs(rawArgs: [])
          expected.targetPlacement = .initialized(.center)
-         testParseCommandSucc("position center", expected)
+         testParseSingleCommandSucc("position center", expected)
 +    }
 +
 +    func testParsePositionTopLeftCorner() {
 +        var expected = PositionCmdArgs(rawArgs: [])
 +        expected.targetPlacement = .initialized(.topLeftCorner)
-+        testParseCommandSucc("position topLeftCorner", expected)
++        testParseSingleCommandSucc("position topLeftCorner", expected)
 +    }
 +
 +    func testParsePositionTopRightCorner() {
 +        var expected = PositionCmdArgs(rawArgs: [])
 +        expected.targetPlacement = .initialized(.topRightCorner)
-+        testParseCommandSucc("position topRightCorner", expected)
++        testParseSingleCommandSucc("position topRightCorner", expected)
 +    }
 +
 +    func testParsePositionBottomPanel() {
 +        var expected = PositionCmdArgs(rawArgs: [])
 +        expected.targetPlacement = .initialized(.bottomPanel)
-+        testParseCommandSucc("position bottomPanel", expected)
++        testParseSingleCommandSucc("position bottomPanel", expected)
 +    }
 +
 +    func testParsePositionInvalid() {
-+        testParseCommandFail("position invalid", msg: "Invalid placement 'invalid'. Expected 'center', 'topLeftCorner', 'topRightCorner', or 'bottomPanel'")
++        testParseCommandFail("position invalid", msg: "Invalid placement 'invalid'. Expected 'center', 'topLeftCorner', 'topRightCorner', or 'bottomPanel'", exitCode: 2)
 +    }
 +
 +    @MainActor
@@ -90,7 +112,7 @@ diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/
 +        XCTAssertTrue(window.isFloating, "Window should be floating after position command")
 +
 +        let monitorRect = workspace.workspaceMonitor.visibleRect
-+        if let rect = try await window.getAxRect() {
++        if let rect = try await window.getAxRect(.nonCancellable) {
 +            let expectedWidth = monitorRect.width * 0.15
 +            let expectedHeight = monitorRect.height * 0.40
 +            let expectedX = monitorRect.minX + (monitorRect.width * 0.05)
@@ -122,7 +144,7 @@ diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/
 +        XCTAssertTrue(window.isFloating, "Window should be floating after position command")
 +
 +        let monitorRect = workspace.workspaceMonitor.visibleRect
-+        if let rect = try await window.getAxRect() {
++        if let rect = try await window.getAxRect(.nonCancellable) {
 +            let expectedWidth = monitorRect.width * 0.15
 +            let expectedHeight = monitorRect.height * 0.40
 +            let expectedX = monitorRect.maxX - (monitorRect.width * 0.05) - expectedWidth
@@ -154,7 +176,7 @@ diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/
 +        XCTAssertTrue(window.isFloating, "Window should be floating after position command")
 +
 +        let monitorRect = workspace.workspaceMonitor.visibleRect
-+        if let rect = try await window.getAxRect() {
++        if let rect = try await window.getAxRect(.nonCancellable) {
 +            let expectedWidth = monitorRect.width
 +            let expectedHeight = monitorRect.height * 0.30
 +            let expectedX = monitorRect.minX
@@ -190,7 +212,7 @@ diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/
 +        args = args.copy(\.windowId, 2)
 +
 +        let command = PositionCommand(args: args)
-+        _ = try await command.run(.defaultEnv.copy(\.windowId, 1), .emptyStdin)
++        _ = try await command.run(.defaultEnv.withWindowId(1), .emptyStdin)
 +
 +        XCTAssertFalse(staleWindow.isFloating, "The stale env window should remain tiled")
 +        XCTAssertTrue(targetWindow.isFloating, "The explicitly targeted window should be floated and positioned")
@@ -200,8 +222,20 @@ diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/
 diff --git a/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift b/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift
 --- a/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift
 +++ b/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift
-@@ -9,8 +9,11 @@
-         posArgs: [newArgParser(\.targetPlacement, consumePlacement, mandatoryArgPlaceholder: "<preset>")]
+@@ -1,27 +1,27 @@
+ public struct PositionCmdArgs: CmdArgs {
+-    public let rawArgsForStrRepr: EquatableNoop<StrArrSlice>
+-    public init(rawArgs: StrArrSlice) { self.rawArgsForStrRepr = .init(rawArgs) }
+-    public static let parser: CmdParser<Self> = cmdParser(
++    /*conforms*/ public var commonState: CmdArgsCommonState
++    public init(rawArgs: StrArrSlice) { self.commonState = .init(rawArgs) }
++    public static let parser: CmdParser<Self> = .init(
+         kind: .position,
+-        allowInConfig: true,
+         help: "USAGE: aerospace position <preset>",
+         flags: [:],
+-        posArgs: [newArgParser(\.targetPlacement, consumePlacement, mandatoryArgPlaceholder: "<preset>")]
++        posArgs: [newMandatoryPosArgParser(\.targetPlacement, consumePlacement, placeholder: "<preset>")]
      )
  
 -    public enum Placement: String, Equatable, Sendable {
@@ -212,8 +246,13 @@ diff --git a/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift b/Sources/Common/
 +        case bottomPanel
      }
  
-     /*conforms*/ public var windowId: UInt32?
-@@ -22,6 +25,6 @@
+-    /*conforms*/ public var windowId: UInt32?
+-    /*conforms*/ public var workspaceName: WorkspaceName?
+     public var targetPlacement: Lateinit<Placement> = .uninitialized
+ }
+ 
+-private func consumePlacement(i: ArgParserInput) -> ParsedCliArgs<PositionCmdArgs.Placement> {
++private func consumePlacement(i: PosArgParserInput) -> ParsedCliArgs<PositionCmdArgs.Placement> {
      if let placement = PositionCmdArgs.Placement(rawValue: i.arg) {
          return .succ(placement, advanceBy: 1)
      } else {
@@ -221,19 +260,6 @@ diff --git a/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift b/Sources/Common/
 +        return .init(.failure("Invalid placement '\(i.arg)'. Expected 'center', 'topLeftCorner', 'topRightCorner', or 'bottomPanel'"), advanceBy: 1)
      }
  }
-
-diff --git a/Sources/Common/cmdHelpGenerated.swift b/Sources/Common/cmdHelpGenerated.swift
---- a/Sources/Common/cmdHelpGenerated.swift
-+++ b/Sources/Common/cmdHelpGenerated.swift
-@@ -127,7 +127,7 @@
-     USAGE: reload-config [-h|--help] [--no-gui] [--dry-run]
-     """
- let position_help_generated = """
--    USAGE: position [-h|--help] [--window-id <window-id>] (center)
-+    USAGE: position [-h|--help] [--window-id <window-id>] (center|topLeftCorner|topRightCorner|bottomPanel)
-     """
- let resize_help_generated = """
-     USAGE: resize [-h|--help] [--window-id <window-id>] (smart|smart-opposite|width|height) [+|-]<number>
 
 diff --git a/docs/aerospace-position.adoc b/docs/aerospace-position.adoc
 --- a/docs/aerospace-position.adoc

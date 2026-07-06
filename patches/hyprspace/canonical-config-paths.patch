@@ -1,7 +1,7 @@
 # Summary: Makes ~/.config/hyprspace/config.toml the canonical active config and keeps compatibility paths as fallbacks only.
 
 diff --git a/Sources/AppBundle/config/ConfigFile.swift b/Sources/AppBundle/config/ConfigFile.swift
-index 141c876b..1222f089 100644
+index 88ea16a5..53d5691e 100644
 --- a/Sources/AppBundle/config/ConfigFile.swift
 +++ b/Sources/AppBundle/config/ConfigFile.swift
 @@ -2,26 +2,52 @@ import Common
@@ -11,13 +11,13 @@ index 141c876b..1222f089 100644
 -func findCustomConfigUrl() -> ConfigFile {
 -    let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"].map { URL(filePath: $0) }
 -        ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config/")
--    let candidates: [URL] = if let configLocation = serverArgs.configLocation {
--        [URL(filePath: configLocation)]
--    } else {
--        [
--            FileManager.default.homeDirectoryForCurrentUser.appending(path: configDotfileName),
+-    let candidates: [URL] = switch serverArgs.configLocation {
+-        case let configLocation?: [URL(filePath: configLocation)]
+-        case nil:
+-            [
+-                FileManager.default.homeDirectoryForCurrentUser.appending(path: configDotfileName),
 -            xdgConfigHome.appending(path: "hyprspace").appending(path: "hyprspace.toml"),
--        ]
+-            ]
 +let canonicalConfigFilename = "config.toml"
 +
 +func canonicalConfigDirectory(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
@@ -72,18 +72,11 @@ index 141c876b..1222f089 100644
  enum ConfigFile {
      case file(URL), ambiguousConfigError(_ candidates: [URL]), noCustomConfigExists
  
-@@ -31,4 +57,4 @@ enum ConfigFile {
-             case .ambiguousConfigError, .noCustomConfigExists: nil
-         }
-     }
--}
-+}
-\ No newline at end of file
 diff --git a/Sources/AppBundle/ui/MenuBar.swift b/Sources/AppBundle/ui/MenuBar.swift
-index f8727069..42d4661f 100644
+index c1825b6c..e79e6bdb 100644
 --- a/Sources/AppBundle/ui/MenuBar.swift
 +++ b/Sources/AppBundle/ui/MenuBar.swift
-@@ -66,15 +66,16 @@ public func menuBar(viewModel: TrayMenuModel) -> some Scene { // todo should it
+@@ -91,15 +91,16 @@ public func menuBar(viewModel: TrayMenuModel) -> some Scene { // todo should it
  func openConfigButton(showShortcutGroup: Bool = false) -> some View {
      let editor = getTextEditorToOpenConfig()
      let button = Button("Open config in '\(editor.lastPathComponent)'") {
@@ -102,82 +95,9 @@ index f8727069..42d4661f 100644
 +                candidates.first?.open(with: editor)
          }
      }.keyboardShortcut(",", modifiers: .command)
-     if showShortcutGroup {
-diff --git a/Sources/AppBundleTests/config/ConfigFileTest.swift b/Sources/AppBundleTests/config/ConfigFileTest.swift
-new file mode 100644
-index 00000000..3a970f7e
---- /dev/null
-+++ b/Sources/AppBundleTests/config/ConfigFileTest.swift
-@@ -0,0 +1,67 @@
-+@testable import AppBundle
-+import XCTest
-+
-+final class ConfigFileTest: XCTestCase {
-+    func testCanonicalConfigDirectoryUsesDotConfigUnderHome() {
-+        let home = URL(filePath: "/tmp/test-home")
-+        XCTAssertEqual(canonicalConfigDirectory(homeDirectory: home).path, "/tmp/test-home/.config/hyprspace")
-+        XCTAssertEqual(canonicalConfigUrl(homeDirectory: home).path, "/tmp/test-home/.config/hyprspace/config.toml")
-+    }
-+
-+    func testCompatibilityConfigUrls() {
-+        let home = URL(filePath: "/tmp/test-home")
-+        XCTAssertEqual(
-+            compatibilityConfigUrls(homeDirectory: home).map(\.path),
-+            [
-+                "/tmp/test-home/.hyprspace.toml",
-+                "/tmp/test-home/Library/Application Support/Hyprspace/config.toml",
-+            ],
-+        )
-+    }
-+
-+    func testCanonicalConfigWinsOverCompatibilityPaths() {
-+        let canonical = URL(filePath: "/tmp/home/.config/hyprspace/config.toml")
-+        let compatibility = [
-+            URL(filePath: "/tmp/home/.hyprspace.toml"),
-+            URL(filePath: "/tmp/home/Library/Application Support/Hyprspace/config.toml"),
-+        ]
-+        let selected = selectCustomConfigUrl(
-+            forceConfigUrl: nil,
-+            canonicalConfigUrl: canonical,
-+            compatibilityCandidates: compatibility,
-+            fileExists: { _ in true },
-+        )
-+        XCTAssertEqual(selected.urlOrNil?.path, canonical.path)
-+    }
-+
-+    func testSingleCompatibilityPathIsUsedWhenCanonicalIsMissing() {
-+        let canonical = URL(filePath: "/tmp/home/.config/hyprspace/config.toml")
-+        let dotfile = URL(filePath: "/tmp/home/.hyprspace.toml")
-+        let appSupport = URL(filePath: "/tmp/home/Library/Application Support/Hyprspace/config.toml")
-+        let selected = selectCustomConfigUrl(
-+            forceConfigUrl: nil,
-+            canonicalConfigUrl: canonical,
-+            compatibilityCandidates: [dotfile, appSupport],
-+            fileExists: { $0 == dotfile },
-+        )
-+        XCTAssertEqual(selected.urlOrNil?.path, dotfile.path)
-+    }
-+
-+    func testCompatibilityPathsAreAmbiguousWhenCanonicalIsMissing() {
-+        let canonical = URL(filePath: "/tmp/home/.config/hyprspace/config.toml")
-+        let dotfile = URL(filePath: "/tmp/home/.hyprspace.toml")
-+        let appSupport = URL(filePath: "/tmp/home/Library/Application Support/Hyprspace/config.toml")
-+        let selected = selectCustomConfigUrl(
-+            forceConfigUrl: nil,
-+            canonicalConfigUrl: canonical,
-+            compatibilityCandidates: [dotfile, appSupport],
-+            fileExists: { $0 == dotfile || $0 == appSupport },
-+        )
-+        switch selected {
-+            case .ambiguousConfigError(let urls):
-+                XCTAssertEqual(urls.map(\.path), [dotfile.path, appSupport.path])
-+            default:
-+                XCTFail("Expected ambiguous config error")
-+        }
-+    }
-+}
+     switch showShortcutGroup {
 diff --git a/docs/goodies.adoc b/docs/goodies.adoc
-index 06e05c0c..0f215d71 100644
+index 5e6810c9..80321249 100644
 --- a/docs/goodies.adoc
 +++ b/docs/goodies.adoc
 @@ -38,13 +38,13 @@ full-screen-api.transition-duration.leave = 0 0
@@ -277,7 +197,7 @@ index 06e05c0c..0f215d71 100644
  
  - Safari
  +
-@@ -202,7 +202,7 @@ end tell'
+@@ -212,7 +212,7 @@ end tell'
  
  If `automatically-unhide-macos-hidden-apps` isn't enough, you can disable `cmd-h` altogether (which will make this hotkey unavailable for apps that might use it for other purposes)
  
@@ -286,7 +206,7 @@ index 06e05c0c..0f215d71 100644
  [source,toml]
  ----
  [mode.main.binding]
-@@ -216,7 +216,7 @@ If `automatically-unhide-macos-hidden-apps` isn't enough, you can disable `cmd-h
+@@ -226,7 +226,7 @@ If `automatically-unhide-macos-hidden-apps` isn't enough, you can disable `cmd-h
  You can configure a custom shortcut to take a screenshot.
  `screencapture` is a built-in macOS command.
  
@@ -296,7 +216,7 @@ index 06e05c0c..0f215d71 100644
  ----
  alt-shift-s = 'exec-and-forget screencapture -i -c'
 diff --git a/docs/guide.adoc b/docs/guide.adoc
-index 798157f2..a8757972 100644
+index dc2af9de..cd5e33dd 100644
 --- a/docs/guide.adoc
 +++ b/docs/guide.adoc
 @@ -62,13 +62,16 @@ xattr -d com.apple.quarantine /Applications/AeroSpace.app
@@ -321,7 +241,7 @@ index 798157f2..a8757972 100644
  
  === Config samples
  
-@@ -85,25 +88,26 @@ See https://toml.io/en/v1.0.0[TOML spec for more info]
+@@ -84,25 +87,26 @@ See https://toml.io/en/v1.1.0[TOML spec for more info]
  [#default-config]
  === Default config
  
@@ -345,7 +265,7 @@ index 798157f2..a8757972 100644
 +Rule of thumb: all the "scalar like" values always fall back to the built-in defaults. All the "vector like" values fall back to the empty TOML array or table.
  
  That allows you to keep your config tidy and clean from trivial config keys for which you like the default values.
- You can bootstrap your custom config by copying the default config from the app installation -
+ You can bootstrap your custom config by copying the default config from the app installation:
  
  [source,shell]
  ----

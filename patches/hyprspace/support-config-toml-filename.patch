@@ -13,13 +13,12 @@ index 141c876b..ff22d96d 100644
  func findCustomConfigUrl() -> ConfigFile {
      let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"].map { URL(filePath: $0) }
          ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config/")
-@@ -10,7 +10,7 @@
-     } else {
-         [
-             FileManager.default.homeDirectoryForCurrentUser.appending(path: configDotfileName),
--            xdgConfigHome.appending(path: "aerospace").appending(path: "aerospace.toml"),
-+            xdgConfigHome.appending(path: "hyprspace").appending(path: "hyprspace.toml"),
-         ]
+@@ -10,7 +10,7 @@ func findCustomConfigUrl() -> ConfigFile {
+         case nil:
+             [
+                 FileManager.default.homeDirectoryForCurrentUser.appending(path: configDotfileName),
+-                xdgConfigHome.appending(path: "aerospace").appending(path: "aerospace.toml"),
++                xdgConfigHome.appending(path: "hyprspace").appending(path: "hyprspace.toml"),
+             ]
      }
      let existingCandidates: [URL] = candidates.filter { (candidate: URL) in FileManager.default.fileExists(atPath: candidate.path) }
-

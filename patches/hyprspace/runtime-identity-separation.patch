@@ -1,10 +1,9 @@
 # Summary: Separates runtime app identity, socket surfaces, and related temp-path behavior from upstream AeroSpace naming.
-
 diff --git a/Sources/AppBundle/initAppBundle.swift b/Sources/AppBundle/initAppBundle.swift
-index 7a165b07..88426f22 100644
+index 83805d70..17acb289 100644
 --- a/Sources/AppBundle/initAppBundle.swift
 +++ b/Sources/AppBundle/initAppBundle.swift
-@@ -59,13 +59,13 @@ struct ServerArgs: Sendable {
+@@ -64,13 +64,13 @@ struct ServerArgs: Sendable {
  }
  
  private let serverHelp = """
@@ -12,24 +11,22 @@ index 7a165b07..88426f22 100644
 +    USAGE: \(CommandLine.arguments.first ?? "Hyprspace.app/Contents/MacOS/Hyprspace") [<options>]
  
      OPTIONS:
--      -h, --help              Print help
+       -h, --help              Print help
 -      -v, --version           Print AeroSpace.app version
 -      --config-path <path>    Config path. It will take priority over ~/.aerospace.toml
 -                              and ${XDG_CONFIG_HOME}/aerospace/aerospace.toml
-+      -h, --help              Print help
 +      -v, --version           Print Hyprspace.app version
 +      --config-path <path>    Config path. It will take priority over ~/.config/hyprspace/config.toml,
 +                              ~/.hyprspace.toml, and ~/Library/Application Support/Hyprspace/config.toml
        --read-only             Disable window management.
                                Useful if you want to use only debug-windows or other query commands.
      """
-@@ -84,7 +84,7 @@ private func initServerArgs() {
+@@ -88,7 +88,7 @@ private func initServerArgs() {
          index += 1
          switch current {
              case "--version", "-v":
--                print("\(aeroSpaceAppVersion) \(gitHash)")
-+                print(hyprSpaceDisplayVersion)
-                 exit(0)
+-                exit(EXIT_CODE_ZERO, out: "\(aeroSpaceAppVersion) \(gitHash)")
++                exit(EXIT_CODE_ZERO, out: hyprSpaceDisplayVersion)
              case "--config-path":
-                 if let arg = args.getOrNil(atIndex: index) {
-
+                 switch args.getOrNil(atIndex: index) {
+                     case let arg?: unsafe _serverArgs.configLocation = arg

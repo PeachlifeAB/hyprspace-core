@@ -1,11 +1,12 @@
 # Summary: Adds the app-menu command so Hyprspace can activate a running app and inspect or click menu items through Accessibility APIs.
 
 diff --git a/Sources/AppBundle/command/Command.swift b/Sources/AppBundle/command/Command.swift
+index 344793d2..c488807e 100644
 --- a/Sources/AppBundle/command/Command.swift
 +++ b/Sources/AppBundle/command/Command.swift
-@@ -9,9 +9,16 @@
+@@ -10,9 +10,16 @@ protocol Command: AeroAny, Equatable, Sendable {
  
-     /// We should reset closedWindowsCache when the command can potentiall change the tree
+     /// We should reset closedWindowsCache when the command can potentially change the tree
      var shouldResetClosedWindowsCache: Bool { get }
 +
 +    var shouldRefreshModel: Bool { get }
@@ -20,96 +21,25 @@ diff --git a/Sources/AppBundle/command/Command.swift b/Sources/AppBundle/command
      static func == (lhs: Self, rhs: Self) -> Bool {
          return lhs.args.equals(rhs.args)
      }
-@@ -47,7 +54,7 @@
-         for command in self {
-             isSucc = try await command.run(env, io) && isSucc
-             if command.shouldResetClosedWindowsCache { resetClosedWindowsCache() }
--            refreshModel()
-+            if command.shouldRefreshModel { refreshModel() }
-         }
-         return isSucc
-     }
-
-diff --git a/Sources/AppBundle/server.swift b/Sources/AppBundle/server.swift
---- a/Sources/AppBundle/server.swift
-+++ b/Sources/AppBundle/server.swift
-@@ -38,7 +38,7 @@
-     _ = try? socket.readString()
- }
- 
--private let serverVersionAndHash = "\(aeroSpaceAppVersion) \(gitHash)"
-+private let serverVersionAndHash = "\(hyprSpaceVersion) \(gitHash)"
- 
- private func newConnection(_ socket: Socket) async { // todo add exit codes
-     func answerToClient(exitCode: Int32, stdout: String = "", stderr: String = "") {
-@@ -91,12 +91,22 @@
-             continue
-         }
-         if let command {
-+            let env = CmdEnv.init(
-+                windowId: request.windowId.flatMap { $0 },
-+                workspaceName: request.workspace.flatMap { $0 },
-+            )
-             let _answer: Result<ServerAnswer, Error> = await Task { @MainActor in
--                try await runLightSession(.socketServer, token) { () throws in
--                    let env = CmdEnv.init(
--                        windowId: request.windowId.flatMap { $0 },
--                        workspaceName: request.workspace.flatMap { $0 },
--                    )
-+                if command.shouldRunInLightSession {
-+                    return try await runLightSession(.socketServer, token) { () throws in
-+                        let cmdResult = try await command.run(env, CmdStdin(request.stdin))
-+                        return ServerAnswer(
-+                            exitCode: cmdResult.exitCode,
-+                            stdout: cmdResult.stdout.joined(separator: "\n"),
-+                            stderr: cmdResult.stderr.joined(separator: "\n"),
-+                            serverVersionAndHash: serverVersionAndHash,
-+                        )
-+                    }
-+                } else {
-                     let cmdResult = try await command.run(env, CmdStdin(request.stdin))
-                     return ServerAnswer(
-                         exitCode: cmdResult.exitCode,
-
-diff --git a/Sources/Common/cmdArgs/cmdArgsManifest.swift b/Sources/Common/cmdArgs/cmdArgsManifest.swift
---- a/Sources/Common/cmdArgs/cmdArgsManifest.swift
-+++ b/Sources/Common/cmdArgs/cmdArgsManifest.swift
-@@ -1,6 +1,7 @@
- public enum CmdKind: String, CaseIterable, Equatable, Sendable {
-     // Sorted
- 
-+    case appMenu = "app-menu"
-     case balanceSizes = "balance-sizes"
-     case close
-     case closeAllWindowsButCurrent = "close-all-windows-but-current"
-@@ -44,6 +45,8 @@
-     var result: [String: any SubCommandParserProtocol] = [:]
-     for kind in CmdKind.allCases {
-         switch kind {
-+            case .appMenu:
-+                result[kind.rawValue] = SubCommandParser(AppMenuCmdArgs.init)
-             case .balanceSizes:
-                 result[kind.rawValue] = SubCommandParser(BalanceSizesCmdArgs.init)
-             case .close:
-
 diff --git a/Sources/AppBundle/command/cmdManifest.swift b/Sources/AppBundle/command/cmdManifest.swift
+index c611f753..19e6a424 100644
 --- a/Sources/AppBundle/command/cmdManifest.swift
 +++ b/Sources/AppBundle/command/cmdManifest.swift
-@@ -4,6 +4,8 @@
-     func toCommand() -> any Command {
-         let command: any Command
-         switch Self.info.kind {
+@@ -8,6 +8,8 @@ extension CmdArgs {
+                 command = FalseCommand(args: self as! FalseCmdArgs)
+             case ._true:
+                 command = TrueCommand(args: self as! TrueCmdArgs)
 +            case .appMenu:
 +                command = AppMenuCommand(args: self as! AppMenuCmdArgs)
              case .balanceSizes:
                  command = BalanceSizesCommand(args: self as! BalanceSizesCmdArgs)
              case .close:
-
 diff --git a/Sources/AppBundle/command/impl/AppMenuCommand.swift b/Sources/AppBundle/command/impl/AppMenuCommand.swift
 new file mode 100644
+index 00000000..98d15a24
 --- /dev/null
 +++ b/Sources/AppBundle/command/impl/AppMenuCommand.swift
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,89 @@
 +import AppKit
 +import Common
 +import Foundation
@@ -125,53 +55,55 @@ new file mode 100644
 +    /*conforms*/ let shouldResetClosedWindowsCache = false
 +
 +    @MainActor
-+    func run(_ env: CmdEnv, _ io: CmdIo) async throws -> Bool {
++    func run(_ env: CmdEnv, _ io: CmdIo) async -> BinaryExitCode {
 +        guard let bundleId = args.appBundleId else {
-+            return io.err("--app-bundle-id is required")
++            return .fail(io.err("--app-bundle-id is required"))
 +        }
-+        guard let leaves = try await activateAppAndCollectMenuLeaves(bundleId: bundleId, io: io) else {
-+            return false
++        guard let leaves = await activateAppAndCollectMenuLeaves(bundleId: bundleId, io: io) else {
++            return .fail
 +        }
 +        let pattern = (args.matchLeaf ?? (args.clickFirst ? "new" : nil)).map { $0.lowercased() }
 +        let matched = pattern.map { p in leaves.filter { $0.leaf.lowercased().hasPrefix(p) } } ?? leaves
 +        if args.clickFirst {
 +            guard let element = matched.first else {
-+                return io.err("No matching menu item found")
++                return .fail(io.err("No matching menu item found"))
 +            }
 +            let actionResult = AXUIElementPerformAction(element.element, kAXPressAction as CFString)
 +            guard actionResult == .success else {
-+                return io.err("Failed to press menu item '\(element.fullPath)' for '\(bundleId)': AXError \(actionResult.rawValue)")
++                return .fail(io.err("Failed to press menu item '\(element.fullPath)' for '\(bundleId)': AXError \(actionResult.rawValue)"))
 +            }
-+            return true
++            return .succ
 +        }
 +        for item in matched {
 +            _ = io.out(item.fullPath)
 +        }
-+        return true
++        return .succ
 +    }
 +}
 +
 +@MainActor
-+func activateAppAndCollectMenuLeaves(bundleId: String, io: CmdIo) async throws -> [AppMenuLeaf]? {
++func activateAppAndCollectMenuLeaves(bundleId: String, io: CmdIo) async -> [AppMenuLeaf]? {
 +    guard let app = NSWorkspace.shared.runningApplications.first(where: {
 +        $0.bundleIdentifier == bundleId
 +    }) else {
-+        return io.err("Application '\(bundleId)' is not running") ? nil : nil
++        io.err("Application '\(bundleId)' is not running")
++        return nil
 +    }
 +    app.activate(options: .activateIgnoringOtherApps)
 +    var waited = 0
 +    while NSWorkspace.shared.frontmostApplication?.bundleIdentifier != bundleId && waited < 20 {
-+        try await Task.sleep(nanoseconds: 100_000_000)
++        try? await Task.sleep(nanoseconds: 100_000_000)
 +        waited += 1
 +    }
-+    try await Task.sleep(nanoseconds: 200_000_000)
++    try? await Task.sleep(nanoseconds: 200_000_000)
 +
 +    let axApp = AXUIElementCreateApplication(app.processIdentifier)
 +    var menuBarRaw: AnyObject?
 +    guard AXUIElementCopyAttributeValue(axApp, kAXMenuBarAttribute as CFString, &menuBarRaw) == .success,
 +          let menuBarRaw,
 +          CFGetTypeID(menuBarRaw) == AXUIElementGetTypeID() else {
-+        return io.err("Could not access menu bar for '\(bundleId)'") ? nil : nil
++        io.err("Could not access menu bar for '\(bundleId)'")
++        return nil
 +    }
 +    return collectLeaves(menuBarRaw as! AXUIElement)
 +}
@@ -197,9 +129,64 @@ new file mode 100644
 +        return collectLeaves(child, path: title.isEmpty ? path : path + [title], actionElement: nextActionElement)
 +    }
 +}
-
+diff --git a/Sources/AppBundle/server.swift b/Sources/AppBundle/server.swift
+index fc7bed73..4f3cc19c 100644
+--- a/Sources/AppBundle/server.swift
++++ b/Sources/AppBundle/server.swift
+@@ -32,7 +32,7 @@ func toggleReleaseServerIfDebug(_ state: EnableCmdArgs.State) async {
+     _ = await connection.readNonAtomic()
+ }
+ 
+-private let serverVersionAndHash = "\(aeroSpaceAppVersion) \(gitHash)"
++private let serverVersionAndHash = "\(hyprSpaceVersion) \(gitHash)"
+ 
+ private func newConnection(_ connection: NWConnection) async { // todo add exit codes
+     func answerToClient(exitCode: Int32, stdout: String = "", stderr: String = "") async {
+@@ -85,13 +85,23 @@ private func newConnection(_ connection: NWConnection) async { // todo add exit
+                 await answerToClient(exitCode: err.exitCode, stderr: err.msg)
+                 continue
+             case .cmd(let command):
++                let env = CmdEnv.init(
++                    windowId: request.windowId.flattenOptional(),
++                    workspaceName: request.workspace.flattenOptional(),
++                )
+                 var answer: ServerAnswer =
+                     await Result {
+-                        try await runLightSession(.socketServer(command.args), token) { () throws in
+-                            let env = CmdEnv.init(
+-                                windowId: request.windowId.flattenOptional(),
+-                                workspaceName: request.workspace.flattenOptional(),
+-                            )
++                        if command.shouldRunInLightSession {
++                            return try await runLightSession(.socketServer(command.args), token) { () throws in
++                                let cmdResult = await command.run(env, CmdStdin(request.stdin))
++                                return ServerAnswer(
++                                    exitCode: cmdResult.exitCode.rawValue,
++                                    stdout: cmdResult.stdout.joined(separator: "\n"),
++                                    stderr: cmdResult.stderr.joined(separator: "\n"),
++                                    serverVersionAndHash: serverVersionAndHash,
++                                )
++                            }
++                        } else {
+                             let cmdResult = await command.run(env, CmdStdin(request.stdin))
+                             return ServerAnswer(
+                                 exitCode: cmdResult.exitCode.rawValue,
+diff --git a/Sources/AppBundle/shell/Shell.swift b/Sources/AppBundle/shell/Shell.swift
+index e837ae5a..cb6f8845 100644
+--- a/Sources/AppBundle/shell/Shell.swift
++++ b/Sources/AppBundle/shell/Shell.swift
+@@ -101,7 +101,7 @@ extension Shell where T == any Command {
+             case .cmd(let command):
+                 let exitCode = Int32ExitCode(rawValue: await command.run(env, io).rawValue)
+                 if command.shouldResetClosedWindowsCache { resetClosedWindowsCache() }
+-                await refreshModel_nonCancellable()
++                if command.shouldRefreshModel { await refreshModel_nonCancellable() }
+                 return exitCode
+             case .and(let commands): return await runShellAnd(commands, env, io)
+             case .empty: return Int32ExitCode(rawValue: EXIT_CODE_ZERO)
 diff --git a/Sources/AppBundleTests/command/AppMenuCommandTest.swift b/Sources/AppBundleTests/command/AppMenuCommandTest.swift
 new file mode 100644
+index 00000000..68d0b957
 --- /dev/null
 +++ b/Sources/AppBundleTests/command/AppMenuCommandTest.swift
 @@ -0,0 +1,16 @@
@@ -209,46 +196,64 @@ new file mode 100644
 +
 +final class AppMenuCommandTest: XCTestCase {
 +    func testParse() {
-+        testParseCommandSucc(
++        testParseSingleCommandSucc(
 +            "app-menu --app-bundle-id com.mitchellh.ghostty --match-leaf 'new window' --click-first",
 +            AppMenuCmdArgs(rawArgs: []).copy(\.appBundleId, "com.mitchellh.ghostty").copy(\.matchLeaf, "new window").copy(\.clickFirst, true)
 +        )
-+        testParseCommandSucc(
++        testParseSingleCommandSucc(
 +            "app-menu --app-bundle-id com.mitchellh.ghostty",
 +            AppMenuCmdArgs(rawArgs: []).copy(\.appBundleId, "com.mitchellh.ghostty")
 +        )
 +    }
 +}
-
+diff --git a/Sources/Common/cmdArgs/cmdArgsManifest.swift b/Sources/Common/cmdArgs/cmdArgsManifest.swift
+index effe43e8..31a23cef 100644
+--- a/Sources/Common/cmdArgs/cmdArgsManifest.swift
++++ b/Sources/Common/cmdArgs/cmdArgsManifest.swift
+@@ -1,6 +1,7 @@
+ public enum CmdKind: String, CaseIterable, Equatable, Sendable {
+     // Sorted
+ 
++    case appMenu = "app-menu"
+     case balanceSizes = "balance-sizes"
+     case close
+     case closeAllWindowsButCurrent = "close-all-windows-but-current"
+@@ -56,6 +57,8 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
+     var result: [String: any SubCommandParserProtocol] = [:]
+     for kind in CmdKind.allCases {
+         switch kind {
++            case .appMenu:
++                result[kind.rawValue] = SubCommandParser(AppMenuCmdArgs.init)
+             case .balanceSizes:
+                 result[kind.rawValue] = SubCommandParser(BalanceSizesCmdArgs.init)
+             case .close:
 diff --git a/Sources/Common/cmdArgs/impl/AppMenuCmdArgs.swift b/Sources/Common/cmdArgs/impl/AppMenuCmdArgs.swift
 new file mode 100644
+index 00000000..5eb2ea50
 --- /dev/null
 +++ b/Sources/Common/cmdArgs/impl/AppMenuCmdArgs.swift
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,18 @@
 +public struct AppMenuCmdArgs: CmdArgs {
-+    public let rawArgsForStrRepr: EquatableNoop<StrArrSlice>
-+    public init(rawArgs: StrArrSlice) { self.rawArgsForStrRepr = .init(rawArgs) }
-+    public static let parser: CmdParser<Self> = cmdParser(
++    /*conforms*/ public var commonState: CmdArgsCommonState
++    public init(rawArgs: StrArrSlice) { self.commonState = .init(rawArgs) }
++    public static let parser: CmdParser<Self> = .init(
 +        kind: .appMenu,
-+        allowInConfig: false,
 +        help: "USAGE: aerospace app-menu --app-bundle-id <id> [--match-leaf <pattern>] [--click-first]",
 +        flags: [
-+            "--app-bundle-id": singleValueSubArgParser(\.appBundleId, "<app-bundle-id>") { $0 },
-+            "--match-leaf": singleValueSubArgParser(\.matchLeaf, "<pattern>") { $0 },
++            "--app-bundle-id": singleValueSubArgParser(\.appBundleId, "<app-bundle-id>", Result.success),
++            "--match-leaf": singleValueSubArgParser(\.matchLeaf, "<pattern>", Result.success),
 +            "--click-first": trueBoolFlag(\.clickFirst),
 +        ],
 +        posArgs: [],
 +    )
 +
-+    /*conforms*/ public var windowId: UInt32?
-+    /*conforms*/ public var workspaceName: WorkspaceName?
 +    public var appBundleId: String?
 +    public var matchLeaf: String?
 +    public var clickFirst: Bool = false
 +}
-
 diff --git a/docs/aerospace-app-menu.adoc b/docs/aerospace-app-menu.adoc
 new file mode 100644
+index 00000000..66bba0b4
 --- /dev/null
 +++ b/docs/aerospace-app-menu.adoc
 @@ -0,0 +1,21 @@

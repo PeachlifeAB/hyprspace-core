@@ -1,10 +1,10 @@
 # Summary: Add non-prompting --accessibility-status self-checks for app and CLI
 
 diff --git a/Sources/AppBundle/initAppBundle.swift b/Sources/AppBundle/initAppBundle.swift
-index 292ccd47..230ae85b 100644
+index 17acb289..96afbd4e 100644
 --- a/Sources/AppBundle/initAppBundle.swift
 +++ b/Sources/AppBundle/initAppBundle.swift
-@@ -59,16 +59,17 @@ struct ServerArgs: Sendable {
+@@ -64,16 +64,17 @@ struct ServerArgs: Sendable {
  }
  
  private let serverHelp = """
@@ -30,10 +30,10 @@ index 292ccd47..230ae85b 100644
 +"""
  
  nonisolated(unsafe) private var _serverArgs = ServerArgs()
- var serverArgs: ServerArgs { _serverArgs }
-@@ -78,6 +79,9 @@ private func initServerArgs() {
-         print(serverHelp)
-         exit(0)
+ var serverArgs: ServerArgs { unsafe _serverArgs }
+@@ -82,6 +83,9 @@ private func initServerArgs() {
+     if args.contains(where: { $0 == "-h" || $0 == "--help" }) {
+         exit(EXIT_CODE_ZERO, out: serverHelp)
      }
 +    if args.contains(where: { $0 == "--accessibility-status" }) {
 +        printAccessibilityStatusAndExit()
@@ -42,11 +42,11 @@ index 292ccd47..230ae85b 100644
      while index < args.count {
          let current = args[index]
 diff --git a/Sources/Cli/_main.swift b/Sources/Cli/_main.swift
-index eecfe754..89a17baa 100644
+index e4cc687a..f8adce83 100644
 --- a/Sources/Cli/_main.swift
 +++ b/Sources/Cli/_main.swift
 @@ -4,12 +4,17 @@ import Foundation
- import Socket
+ import Network
  
  let usage =
 -    """
@@ -68,8 +68,8 @@ index eecfe754..89a17baa 100644
  
  @main
  struct Main {
-@@ -25,11 +30,15 @@ struct Main {
-             exit(0)
+@@ -23,11 +28,15 @@ struct Main {
+             exit(EXIT_CODE_ZERO, out: usage)
          }
  
 -        if args.first == "--version" || args.first == "-v" {
@@ -86,18 +86,18 @@ index eecfe754..89a17baa 100644
 -        let parsedArgs: any CmdArgs
 +let parsedArgs: any CmdArgs
          switch parseCmdArgs(args) {
-             case .cmd(let _parsedArgs):
-                 parsedArgs = _parsedArgs
+             // Optimizations
+             case .cmd(_ as TrueCmdArgs): exit(ConditionalExitCode._true.rawValue)
 diff --git a/Sources/Common/util/accessibilityStatus.swift b/Sources/Common/util/accessibilityStatus.swift
 new file mode 100644
-index 00000000..705b800b
+index 00000000..28ab88a2
 --- /dev/null
 +++ b/Sources/Common/util/accessibilityStatus.swift
 @@ -0,0 +1,26 @@
 +import Foundation
-+@preconcurrency import ApplicationServices
++@preconcurrency @unsafe import ApplicationServices
 +
-+private let axTrustedCheckOptionPrompt: String = kAXTrustedCheckOptionPrompt.takeRetainedValue() as String
++private let axTrustedCheckOptionPrompt: String = unsafe kAXTrustedCheckOptionPrompt.takeRetainedValue() as String
 +
 +/// Non-prompting accessibility trust check for the current process.
 +/// Returns true if the process is trusted for Accessibility, false otherwise.
