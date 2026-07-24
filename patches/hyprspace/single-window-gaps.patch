@@ -64,6 +64,19 @@ diff --git a/Sources/AppBundle/layout/layoutRecursive.swift b/Sources/AppBundle/
      }
  }
  
+@@ -97,9 +97,11 @@
+ 
+     @MainActor
+     fileprivate func layoutFullscreen(_ context: LayoutContext) {
++        // Fullscreen uses the single-window gaps (if configured) so `fullscreen` matches the
++        // reduced border of a solo tiled window; `--no-outer-gaps` still means true edge-to-edge.
+         let monitorRect = noOuterGapsInFullscreen
+             ? context.workspace.workspaceMonitor.visibleRect
+-            : context.workspace.workspaceMonitor.visibleRectPaddedByOuterGaps
++            : context.workspace.workspaceMonitor.visibleRectPadded(byOuterGapsOf: config.singleWindowGaps ?? config.gaps)
+         setAxFrame(monitorRect.topLeftCorner, CGSize(width: monitorRect.width, height: monitorRect.height))
+     }
+ }
 
 diff --git a/Sources/AppBundle/model/MonitorEx.swift b/Sources/AppBundle/model/MonitorEx.swift
 --- a/Sources/AppBundle/model/MonitorEx.swift
