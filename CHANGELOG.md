@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `[single-window-gaps]` config table: an optional gaps override applied when a workspace has exactly one tiled window, letting a solo window use reduced (or zero) gaps to fill the screen. Reuses the full `gaps` grammar, including per-monitor arrays. An empty table means zero gaps.
 
+### Changed
+
+- `layout floating` now centers the window on its monitor at 62.5% of the monitor's visible area on each axis, instead of leaving it at whatever frame the tiling layout happened to give it. A window popped out of the tree now lands somewhere usable regardless of where it was tiled. This replaces the previous behavior of restoring the window's last floating size.
+
 ## [0.3.0] - 2026-07-06
 
 ### Changed
