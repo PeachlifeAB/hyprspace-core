@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `resize` on a tiling window with no enclosing container on the requested axis no longer reports the misleading "doesn't support floating windows" error, and macOS minimized/fullscreen/hidden-app windows now get their own message.
 
+### Changed
+
+- `layout floating` now centers the window on its monitor at 62.5% of the monitor's visible area on each axis, instead of leaving it at whatever frame the tiling layout happened to give it. A window popped out of the tree now lands somewhere usable regardless of where it was tiled. This replaces the previous behavior of restoring the window's last floating size.
+
 ## [0.3.0] - 2026-07-06
 
 ### Changed
