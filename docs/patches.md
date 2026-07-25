@@ -66,6 +66,9 @@ The active stack is the ordered list in `patches/series`. Each patch should prov
 - `hyprspace/single-window-gaps.patch`
   **single window gaps** — Adds an optional [single-window-gaps] config table used when a workspace has exactly one tiled window, letting a solo window use reduced (or zero) gaps to fill the screen. Reuses the full Gaps grammar including per-monitor arrays.
 
+- `hyprspace/resize-floating-windows.patch`
+  **resize floating windows** — Adds floating window support to the resize command, resizing around the window center.
+
 ## Patch files not currently in `patches/series`
 
 - `hyprspace/build-release-restore-generated-files.patch`
