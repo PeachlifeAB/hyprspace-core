@@ -1,8 +1,6 @@
 /.idea
 log/
 refcode/
-AGENTS.md
-CLAUDE.md
 PLAN.md
 JOURNAL.md
 promises/
@@ -28,3 +26,9 @@ refcode/
 # Local agent memory overrides (per-developer, not committed)
 AGENTS.override.md
 CLAUDE.local.md
+/.gdog
+/graft
+/.mcp.json
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/

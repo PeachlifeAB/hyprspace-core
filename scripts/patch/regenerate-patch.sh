@@ -8,7 +8,7 @@ PATCHES_DIR="$ROOT_DIR/patches"
 SERIES_FILE="$PATCHES_DIR/series"
 LIVE_TREE="$ROOT_DIR/AeroSpace"
 AEROSPACE_VERSION_FILE="$ROOT_DIR/aerospace_version.txt"
-ARTIFACT_EXCLUDES=(".git" ".build" ".swiftpm" ".xcode-build" ".release" ".deps" ".shell-completion" "log" "default.profraw")
+ARTIFACT_EXCLUDES=(".git" ".build" ".codegraph" ".swiftpm" ".xcode-build" ".release" ".deps" ".shell-completion" "log" "default.profraw")
 
 TEMP_DIR=""
 PATCH_BIN=""

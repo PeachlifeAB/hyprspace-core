@@ -39,7 +39,7 @@ diff --git a/Sources/AppBundleTests/config/ConfigTest.swift b/Sources/AppBundleT
 +        assertNotNil(altEnter)
 +        let terminalCmd = altEnter?.commands.flatten().first as? NewWindowOrOpenCommand
 +        assertNotNil(terminalCmd)
-+        assertEquals(terminalCmd?.args.appName.val, "Ghostty")
++        assertEquals(terminalCmd?.args.launchTokens.val.first, "Ghostty")
 +
 +        let startupCmd = config.afterStartupCommand.flatten().first as? ExecAndForgetCommand
 +        assertNotNil(startupCmd)
@@ -58,7 +58,8 @@ diff --git a/Sources/AppBundleTests/config/ConfigTest.swift b/Sources/AppBundleT
          assertNotNil(altB)
          let newWindowCmd = altB?.commands.flatten().first as? NewWindowOrOpenCommand
          assertNotNil(newWindowCmd)
-         assertEquals(newWindowCmd?.args.appName.val, "Safari")
+-        assertEquals(newWindowCmd?.args.appName.val, "Safari")
++        assertEquals(newWindowCmd?.args.launchTokens.val.first, "Safari")
 +
 +        assertEquals(config.persistentWorkspaces.sorted(), ["1", "2", "3", "4"])
 +    }

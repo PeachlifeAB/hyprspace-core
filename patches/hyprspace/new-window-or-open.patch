@@ -96,7 +96,7 @@ diff --git a/Sources/Common/cmdArgs/cmdArgsManifest.swift b/Sources/Common/cmdAr
                  // deprecated
                  result["move-workspace-to-display"] = SubCommandParser(MoveWorkspaceToMonitorCmdArgs.init)
 +            case .newWindowOrOpen:
-+                result[kind.rawValue] = SubCommandParser(NewWindowOrOpenCmdArgs.init)
++                result[kind.rawValue] = SubCommandParser(parseNewWindowOrOpenCmdArgs)
              case .reloadConfig:
                  result[kind.rawValue] = SubCommandParser(ReloadConfigCmdArgs.init)
              case .resize:

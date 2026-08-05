@@ -107,7 +107,7 @@ diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/
 +        expected.targetPlacement = .initialized(.topLeftCorner)
 +        let command = PositionCommand(args: expected)
 +
-+        _ = try await command.run(.defaultEnv, .emptyStdin)
++        _ = await command.run(.defaultEnv, .emptyStdin)
 +
 +        XCTAssertTrue(window.isFloating, "Window should be floating after position command")
 +
@@ -139,7 +139,7 @@ diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/
 +        expected.targetPlacement = .initialized(.topRightCorner)
 +        let command = PositionCommand(args: expected)
 +
-+        _ = try await command.run(.defaultEnv, .emptyStdin)
++        _ = await command.run(.defaultEnv, .emptyStdin)
 +
 +        XCTAssertTrue(window.isFloating, "Window should be floating after position command")
 +
@@ -171,7 +171,7 @@ diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/
 +        expected.targetPlacement = .initialized(.bottomPanel)
 +        let command = PositionCommand(args: expected)
 +
-+        _ = try await command.run(.defaultEnv, .emptyStdin)
++        _ = await command.run(.defaultEnv, .emptyStdin)
 +
 +        XCTAssertTrue(window.isFloating, "Window should be floating after position command")
 +
@@ -212,7 +212,7 @@ diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/
 +        args = args.copy(\.windowId, 2)
 +
 +        let command = PositionCommand(args: args)
-+        _ = try await command.run(.defaultEnv.withWindowId(1), .emptyStdin)
++        _ = await command.run(.defaultEnv.withWindowId(1), .emptyStdin)
 +
 +        XCTAssertFalse(staleWindow.isFloating, "The stale env window should remain tiled")
 +        XCTAssertTrue(targetWindow.isFloating, "The explicitly targeted window should be floated and positioned")
@@ -232,10 +232,10 @@ diff --git a/Sources/Common/cmdArgs/impl/PositionCmdArgs.swift b/Sources/Common/
 +    public static let parser: CmdParser<Self> = .init(
          kind: .position,
 -        allowInConfig: true,
-         help: "USAGE: aerospace position <preset>",
+         help: position_help_generated,
          flags: [:],
 -        posArgs: [newArgParser(\.targetPlacement, consumePlacement, mandatoryArgPlaceholder: "<preset>")]
-+        posArgs: [newMandatoryPosArgParser(\.targetPlacement, consumePlacement, placeholder: "<preset>")]
++        posArgs: [newMandatoryPosArgParser(\.targetPlacement, consumePlacement, placeholder: "<preset>")],
      )
  
 -    public enum Placement: String, Equatable, Sendable {
