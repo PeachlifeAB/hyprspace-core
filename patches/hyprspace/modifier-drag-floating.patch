@@ -1,0 +1,329 @@
+# Summary: Adds a configurable modifier gesture that temporarily floats a window while dragging and retiles it at the drop point.
+
+diff --git a/Sources/AppBundle/command/impl/ReloadConfigCommand.swift b/Sources/AppBundle/command/impl/ReloadConfigCommand.swift
+--- a/Sources/AppBundle/command/impl/ReloadConfigCommand.swift
++++ b/Sources/AppBundle/command/impl/ReloadConfigCommand.swift
+@@ -56,6 +56,7 @@
+         await activateMode_nonCancellable(activeMode)
+         syncStartAtLogin()
+         syncFocusFollowsMouse(config)
++        syncMouseDrag(config)
+         syncConfigFileWatcher()
+     }
+ 
+
+diff --git a/Sources/AppBundle/config/Config.swift b/Sources/AppBundle/config/Config.swift
+--- a/Sources/AppBundle/config/Config.swift
++++ b/Sources/AppBundle/config/Config.swift
+@@ -51,6 +51,7 @@
+     var keyMapping = KeyMapping()
+     var execConfig: ExecConfig = ExecConfig()
+     var focusFollowsMouse: FocusFollowsMouse = FocusFollowsMouse()
++    var mouseDrag: MouseDrag = MouseDrag()
+ 
+     var onFocusChanged: Shell<any Command> = .empty
+     // var onFocusedWorkspaceChanged: [any Command] = []
+@@ -70,6 +71,11 @@
+     var enabled: Bool = false
+ }
+ 
++struct MouseDrag: ConvenienceMutable {
++    var enabled: Bool = false
++    var modifiers: NSEvent.ModifierFlags = .option
++}
++
+ enum ConfigVersion: Int, Comparable, CaseIterable, Sendable, CustomStringConvertible {
+     case _1 = 1
+     case _2 = 2
+
+diff --git a/Sources/AppBundle/config/parseConfig.swift b/Sources/AppBundle/config/parseConfig.swift
+--- a/Sources/AppBundle/config/parseConfig.swift
++++ b/Sources/AppBundle/config/parseConfig.swift
+@@ -156,6 +156,7 @@
+     "gaps": Parser(\.gaps, parseGaps),
+     "single-window-gaps": Parser(\.singleWindowGaps, parseSingleWindowGaps),
+     "focus-follows-mouse": Parser(\.focusFollowsMouse, parseFocusFollowsMouse),
++    "mouse-drag": Parser(\.mouseDrag, parseMouseDrag),
+     "workspace-to-monitor-force-assignment": Parser(\.workspaceToMonitorForceAssignment, parseWorkspaceToMonitorAssignment),
+     "on-window-detected": Parser(\.onWindowDetected, parseOnWindowDetectedArray),
+ 
+
+diff --git a/Sources/AppBundle/config/parseMouseDrag.swift b/Sources/AppBundle/config/parseMouseDrag.swift
+new file mode 100644
+--- /dev/null
++++ b/Sources/AppBundle/config/parseMouseDrag.swift
+@@ -0,0 +1,28 @@
++import AppKit
++
++private let mouseDragParserTable: [String: any ParserProtocol<MouseDrag>] = [
++    "enabled": Parser(\.enabled, parseBool),
++    "modifier": Parser(\.modifiers, parseMouseDragModifiers),
++]
++
++func parseMouseDrag(_ rawConfig: OrderedJson, _ backtrace: ConfigBacktrace, _ c: inout ConfigParserContext) -> MouseDrag {
++    parseTable(rawConfig, MouseDrag(), mouseDragParserTable, backtrace, &c)
++}
++
++private func parseMouseDragModifiers(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> ResOrConfigParseDiagnostic<NSEvent.ModifierFlags> {
++    parseString(raw, backtrace).flatMap { value in
++        let names = value.split(separator: "-")
++        guard !names.isEmpty else {
++            return .failure(.init(backtrace, "Mouse drag modifier can't be empty"))
++        }
++
++        var result: NSEvent.ModifierFlags = []
++        for name in names {
++            guard let modifier = modifiersMap[String(name)] else {
++                return .failure(.init(backtrace, "Can't parse mouse drag modifier '\(value)'"))
++            }
++            result.formUnion(modifier)
++        }
++        return .success(result)
++    }
++}
+
+diff --git a/Sources/AppBundle/mouse/modifierDrag.swift b/Sources/AppBundle/mouse/modifierDrag.swift
+new file mode 100644
+--- /dev/null
++++ b/Sources/AppBundle/mouse/modifierDrag.swift
+@@ -0,0 +1,161 @@
++import AppKit
++import Common
++
++private struct MouseDragState {
++    let windowId: UInt32
++    let initialMouse: CGPoint
++    let initialFrame: Rect
++    let wasFloating: Bool
++    var hasStarted: Bool = false
++}
++
++private let mouseDragModifierMask: NSEvent.ModifierFlags = [.option, .control, .command, .shift]
++
++@MainActor private var mouseDragMonitor: Any? = nil
++@MainActor private var mouseDragState: MouseDragState? = nil
++@MainActor private var mouseDragStartTask: Task<(), any Error>? = nil
++
++@MainActor
++func syncMouseDrag(_ config: Config) {
++    if config.mouseDrag.enabled == (mouseDragMonitor != nil) { return }
++
++    if !config.mouseDrag.enabled {
++        NSEvent.removeMonitor(mouseDragMonitor.orDie())
++        mouseDragMonitor = nil
++        cancelMouseDrag()
++        return
++    }
++
++    let mask: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
++    mouseDragMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { @MainActor event in
++        switch event.type {
++            case .leftMouseDown: beginMouseDrag(event)
++            case .leftMouseDragged: continueMouseDrag(event)
++            case .leftMouseUp: cancelMouseDrag()
++            default: break
++        }
++    }
++}
++
++@MainActor
++func isMouseDragWindow(_ windowId: UInt32) -> Bool {
++    mouseDragState?.windowId == windowId && mouseDragState?.hasStarted == true
++}
++
++@MainActor
++private func beginMouseDrag(_ event: NSEvent) {
++    guard event.modifierFlags.intersection(mouseDragModifierMask) == config.mouseDrag.modifiers else { return }
++
++    cancelMouseDrag()
++    let initialMouse = event.locationInWindow.withYAxisFlipped
++    mouseDragStartTask = Task.startUnstructured { @MainActor in
++        guard RunSessionGuard.isServerEnabled != nil else { return }
++        guard let windowId = await windowId(at: initialMouse), let window = Window.get(byId: windowId) else { return }
++        try checkCancellation()
++        guard let initialFrame = try await window.getAxRect(.cancellable) else { return }
++        try checkCancellation()
++        guard window.nodeWorkspace != nil else { return }
++
++        switch window.windowParentCases {
++            case .tilingContainer, .floatingWindowsContainer: break
++            case .unbound, .macosFullscreenWindowsContainer, .macosMinimizedWindowsContainer,
++                 .macosPopupWindowsContainer, .macosHiddenAppsWindowsContainer: return
++        }
++
++        mouseDragState = MouseDragState(
++            windowId: window.windowId,
++            initialMouse: initialMouse,
++            initialFrame: initialFrame,
++            wasFloating: window.isFloating,
++        )
++    }
++}
++
++@MainActor
++private func continueMouseDrag(_ event: NSEvent) {
++    guard var state = mouseDragState, let window = Window.get(byId: state.windowId) else {
++        cancelMouseDrag()
++        return
++    }
++
++    if !state.hasStarted {
++        guard let workspace = window.nodeWorkspace else {
++            cancelMouseDrag()
++            return
++        }
++        state.hasStarted = true
++        mouseDragState = state
++        window.isFullscreen = false
++        if !window.isFloating {
++            window.bindAsFloatingWindow(to: workspace)
++        }
++        currentlyManipulatedWithMouseWindowId = window.windowId
++        _ = window.focusWindow()
++        window.nativeFocus()
++        scheduleCancellableCompleteRefreshSession(.globalObserver("mouseDragStarted"), optimisticallyPreLayoutWorkspaces: true)
++    }
++
++    let currentMouse = event.locationInWindow.withYAxisFlipped
++    let topLeft = mouseDragTopLeft(
++        initialWindowTopLeft: state.initialFrame.topLeftCorner,
++        initialMouse: state.initialMouse,
++        currentMouse: currentMouse,
++    )
++    window.setAxFrame(topLeft, nil)
++
++    let center = CGPoint(x: topLeft.x + state.initialFrame.width / 2, y: topLeft.y + state.initialFrame.height / 2)
++    let targetWorkspace = center.monitorApproximation.activeWorkspace
++    if window.nodeWorkspace != targetWorkspace {
++        window.bindAsFloatingWindow(to: targetWorkspace)
++    }
++}
++
++@MainActor
++private func cancelMouseDrag() {
++    mouseDragStartTask?.cancel()
++    mouseDragStartTask = nil
++    guard let state = mouseDragState else { return }
++    mouseDragState = nil
++    guard state.hasStarted else { return }
++    if !state.wasFloating, let window = Window.get(byId: state.windowId) {
++        tileDraggedWindow(window, at: mouseLocation)
++    }
++    currentlyManipulatedWithMouseWindowId = nil
++    scheduleCancellableCompleteRefreshSession(.globalObserver("mouseDragEnded"))
++}
++
++@MainActor
++private func tileDraggedWindow(_ window: Window, at location: CGPoint) {
++    let workspace = location.monitorApproximation.activeWorkspace
++    let target = location
++        .findWindowRecursively(in: workspace.rootTilingContainer, virtual: false, fullscreenCoversAll: false)?
++        .takeIf { $0 != window }
++
++    guard let target,
++          let parent = target.parent as? TilingContainer,
++          let targetRect = target.lastAppliedLayoutPhysicalRect,
++          let targetIndex = target.ownIndex
++    else {
++        window.bind(to: workspace.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
++        return
++    }
++
++    let insertAfter = location.getProjection(parent.orientation) >= targetRect.center.getProjection(parent.orientation)
++    window.bind(to: parent, adaptiveWeight: WEIGHT_AUTO, index: targetIndex + (insertAfter ? 1 : 0))
++}
++
++func mouseDragTopLeft(initialWindowTopLeft: CGPoint, initialMouse: CGPoint, currentMouse: CGPoint) -> CGPoint {
++    initialWindowTopLeft + currentMouse - initialMouse
++}
++
++@concurrent
++private nonisolated func windowId(at location: CGPoint) async -> UInt32? {
++    let systemwide = AXUIElementCreateSystemWide()
++    var element: AXUIElement?
++    guard unsafe AXUIElementCopyElementAtPosition(systemwide, Float(location.x), Float(location.y), &element) == .success,
++          let element
++    else { return nil }
++
++    let window = element.get(Ax.parentWindowRecursive) ?? (element.get(Ax.roleAttr) == kAXWindowRole ? element : nil)
++    return window?.containingWindowId()
++}
+
+diff --git a/Sources/AppBundle/mouse/moveWithMouse.swift b/Sources/AppBundle/mouse/moveWithMouse.swift
+--- a/Sources/AppBundle/mouse/moveWithMouse.swift
++++ b/Sources/AppBundle/mouse/moveWithMouse.swift
+@@ -9,6 +9,7 @@
+     let notif = notif as String
+     Task.startUnstructured { @MainActor in
+         guard let token: RunSessionGuard = .isServerEnabled else { return }
++        if let windowId, isMouseDragWindow(windowId) { return }
+         guard let windowId, let window = Window.get(byId: windowId), try await isManipulatedWithMouse(window) else {
+             scheduleCancellableCompleteRefreshSession(.ax(notif))
+             return
+
+diff --git a/Sources/AppBundleTests/config/ConfigTest.swift b/Sources/AppBundleTests/config/ConfigTest.swift
+--- a/Sources/AppBundleTests/config/ConfigTest.swift
++++ b/Sources/AppBundleTests/config/ConfigTest.swift
+@@ -69,6 +69,27 @@
+         assertEquals(result.config.enableNormalizationOppositeOrientationForNestedContainers, true)
+         assertEquals(result.config.persistentWorkspaces.sorted(), ["1", "2", "3", "4"])
+         assertEquals(result.config.execOnWorkspaceChange, [])
++    }
++
++    func testMouseDragConfig() {
++        let result = parseConfig(
++            """
++            [mouse-drag]
++            enabled = true
++            modifier = 'cmd-shift'
++            """,
++        )
++        assertEquals(result.errors, [])
++        assertTrue(result.config.mouseDrag.enabled)
++        assertEquals(result.config.mouseDrag.modifiers, [.command, .shift])
++
++        let invalid = parseConfig(
++            """
++            [mouse-drag]
++            modifier = 'hyper'
++            """,
++        )
++        assertEquals(invalid.strErrors, ["[ERROR] mouse-drag.modifier: Can't parse mouse drag modifier 'hyper'"])
+     }
+ 
+     func testConfigVersionOutOfBounds() {
+
+diff --git a/Sources/AppBundleTests/mouse/ModifierDragTest.swift b/Sources/AppBundleTests/mouse/ModifierDragTest.swift
+new file mode 100644
+--- /dev/null
++++ b/Sources/AppBundleTests/mouse/ModifierDragTest.swift
+@@ -0,0 +1,13 @@
++@testable import AppBundle
++import XCTest
++
++final class ModifierDragTest: XCTestCase {
++    func testDragPreservesGrabOffset() {
++        let topLeft = mouseDragTopLeft(
++            initialWindowTopLeft: CGPoint(x: 100, y: 200),
++            initialMouse: CGPoint(x: 250, y: 300),
++            currentMouse: CGPoint(x: 300, y: 380),
++        )
++        assertEquals(topLeft, CGPoint(x: 150, y: 280))
++    }
++}
+
+diff --git a/docs/config-examples/default-config.toml b/docs/config-examples/default-config.toml
+--- a/docs/config-examples/default-config.toml
++++ b/docs/config-examples/default-config.toml
+@@ -22,6 +22,11 @@
+     'sketchybar --trigger hyprspace_workspace_change FOCUSED_WORKSPACE=$AEROSPACE_FOCUSED_WORKSPACE PREV_WORKSPACE=$AEROSPACE_PREV_WORKSPACE',
+ ]
+ 
++# Hold alt and drag from anywhere inside a tiled window to move and reinsert it at the drop point.
++[mouse-drag]
++    enabled = true
++    modifier = 'alt'
++
+ [mode.main.binding]
+     alt-enter = 'new-window-or-open Ghostty'
+     alt-b = 'new-window-or-open Safari'
