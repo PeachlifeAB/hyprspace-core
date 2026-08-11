@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Hold `alt` and left-drag anywhere inside a managed window to temporarily pop it out, move it, and reinsert it into the tiling tree at the drop point. Windows that were already floating remain floating. The gesture can be changed or disabled through the `[mouse-drag]` config table.
 - `[single-window-gaps]` config table: an optional gaps override applied when a workspace has exactly one tiled window, letting a solo window use reduced (or zero) gaps to fill the screen. Reuses the full `gaps` grammar, including per-monitor arrays. An empty table means zero gaps.
 - `resize` now works on floating windows, which previously exited with an error. The window's center stays fixed, so growing expands it on all four sides and shrinking pulls it in on all four sides. `smart` and `smart-opposite` resize both axes together, since a floating window has no enclosing split to read an orientation from. Sizes are clamped to the monitor's visible area and to a 100pt minimum.
 - Starter config binds per-axis resizing: `alt--`/`alt-=` for width and `alt-_`/`alt-+` for height. This replaces the previous `resize smart` bindings on `alt--`/`alt-=`.

@@ -72,6 +72,9 @@ The active stack is the ordered list in `patches/series`. Each patch should prov
 - `hyprspace/center-floated-window.patch`
   **center floated window** — Centers a window on its monitor at a default size when it is popped out to floating.
 
+- `hyprspace/modifier-drag-floating.patch`
+  **modifier drag floating** — Adds a configurable modifier gesture that temporarily floats a window while dragging and retiles it at the drop point.
+
 ## Patch files not currently in `patches/series`
 
 - `hyprspace/build-release-restore-generated-files.patch`

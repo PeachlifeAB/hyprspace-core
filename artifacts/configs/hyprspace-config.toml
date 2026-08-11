@@ -27,6 +27,11 @@ exec-on-workspace-change = [
 ]
 # {{/sketchybar}}
 
+# Hold alt and drag from anywhere inside a tiled window to move and reinsert it at the drop point.
+[mouse-drag]
+enabled = true
+modifier = 'alt'
+
 [gaps]
 inner.horizontal = 18
 inner.vertical = 18
