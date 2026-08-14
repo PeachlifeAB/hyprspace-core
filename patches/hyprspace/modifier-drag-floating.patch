@@ -86,8 +86,8 @@ diff --git a/Sources/AppBundle/mouse/modifierDrag.swift b/Sources/AppBundle/mous
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundle/mouse/modifierDrag.swift
-@@ -0,0 +1,161 @@
-+import AppKit
+@@ -0,0 +1,229 @@
++@preconcurrency import AppKit
 +import Common
 +
 +private struct MouseDragState {
@@ -100,30 +100,76 @@ new file mode 100644
 +
 +private let mouseDragModifierMask: NSEvent.ModifierFlags = [.option, .control, .command, .shift]
 +
-+@MainActor private var mouseDragMonitor: Any? = nil
++@MainActor private var mouseDragEventTap: CFMachPort? = nil
++@MainActor private var mouseDragEventTapSource: CFRunLoopSource? = nil
++@MainActor private var isSuppressingMouseDragEvents = false
 +@MainActor private var mouseDragState: MouseDragState? = nil
 +@MainActor private var mouseDragStartTask: Task<(), any Error>? = nil
++@MainActor private var mouseDragUpdateTimer: Timer? = nil
++@MainActor private var pendingMouseDragLocation: CGPoint? = nil
 +
 +@MainActor
 +func syncMouseDrag(_ config: Config) {
-+    if config.mouseDrag.enabled == (mouseDragMonitor != nil) { return }
++    if config.mouseDrag.enabled == (mouseDragEventTap != nil) { return }
 +
 +    if !config.mouseDrag.enabled {
-+        NSEvent.removeMonitor(mouseDragMonitor.orDie())
-+        mouseDragMonitor = nil
++        CGEvent.tapEnable(tap: mouseDragEventTap.orDie(), enable: false)
++        CFRunLoopRemoveSource(CFRunLoopGetMain(), mouseDragEventTapSource.orDie(), .commonModes)
++        mouseDragEventTap = nil
++        mouseDragEventTapSource = nil
++        isSuppressingMouseDragEvents = false
 +        cancelMouseDrag()
 +        return
 +    }
 +
-+    let mask: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
-+    mouseDragMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { @MainActor event in
-+        switch event.type {
-+            case .leftMouseDown: beginMouseDrag(event)
-+            case .leftMouseDragged: continueMouseDrag(event)
-+            case .leftMouseUp: cancelMouseDrag()
++    let mask = (1 << CGEventType.leftMouseDown.rawValue)
++        | (1 << CGEventType.leftMouseDragged.rawValue)
++        | (1 << CGEventType.leftMouseUp.rawValue)
++    guard let eventTap = CGEvent.tapCreate(
++        tap: .cgSessionEventTap,
++        place: .headInsertEventTap,
++        options: .defaultTap,
++        eventsOfInterest: CGEventMask(mask),
++        callback: mouseDragEventTapCallback,
++        userInfo: nil,
++    ) else {
++        return
++    }
++    mouseDragEventTap = eventTap
++    let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
++    mouseDragEventTapSource = source
++    CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
++    CGEvent.tapEnable(tap: eventTap, enable: true)
++}
++
++private nonisolated let mouseDragEventTapCallback: CGEventTapCallBack = { _, type, cgEvent, _ in
++    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
++        Task { @MainActor in
++            if let eventTap = mouseDragEventTap {
++                CGEvent.tapEnable(tap: eventTap, enable: true)
++            }
++        }
++        return Unmanaged.passUnretained(cgEvent)
++    }
++
++    guard let event = NSEvent(cgEvent: cgEvent) else { return Unmanaged.passUnretained(cgEvent) }
++    let suppress = MainActor.assumeIsolated {
++        switch type {
++            case .leftMouseDown:
++                isSuppressingMouseDragEvents =
++                    event.modifierFlags.intersection(mouseDragModifierMask) == config.mouseDrag.modifiers
++                if isSuppressingMouseDragEvents { beginMouseDrag(event) }
++            case .leftMouseDragged:
++                if isSuppressingMouseDragEvents { continueMouseDrag(event) }
++            case .leftMouseUp:
++                if isSuppressingMouseDragEvents { cancelMouseDrag() }
 +            default: break
 +        }
++        let suppress = isSuppressingMouseDragEvents
++        if type == .leftMouseUp { isSuppressingMouseDragEvents = false }
++        return suppress
 +    }
++    return suppress ? nil : Unmanaged.passUnretained(cgEvent)
 +}
 +
 +@MainActor
@@ -184,7 +230,25 @@ new file mode 100644
 +        scheduleCancellableCompleteRefreshSession(.globalObserver("mouseDragStarted"), optimisticallyPreLayoutWorkspaces: true)
 +    }
 +
-+    let currentMouse = event.locationInWindow.withYAxisFlipped
++    pendingMouseDragLocation = event.locationInWindow.withYAxisFlipped
++    if mouseDragUpdateTimer == nil {
++        applyPendingMouseDragUpdate()
++        mouseDragUpdateTimer = Timer.scheduledTimer(withTimeInterval: 1 / 60, repeats: true) { _ in
++            MainActor.assumeIsolated {
++                applyPendingMouseDragUpdate()
++            }
++        }
++    }
++}
++
++@MainActor
++private func applyPendingMouseDragUpdate() {
++    guard let currentMouse = pendingMouseDragLocation else { return }
++    pendingMouseDragLocation = nil
++    guard let state = mouseDragState, let window = Window.get(byId: state.windowId) else {
++        cancelMouseDrag()
++        return
++    }
 +    let topLeft = mouseDragTopLeft(
 +        initialWindowTopLeft: state.initialFrame.topLeftCorner,
 +        initialMouse: state.initialMouse,
@@ -203,6 +267,10 @@ new file mode 100644
 +private func cancelMouseDrag() {
 +    mouseDragStartTask?.cancel()
 +    mouseDragStartTask = nil
++    mouseDragUpdateTimer?.invalidate()
++    mouseDragUpdateTimer = nil
++    applyPendingMouseDragUpdate()
++    pendingMouseDragLocation = nil
 +    guard let state = mouseDragState else { return }
 +    mouseDragState = nil
 +    guard state.hasStarted else { return }
