@@ -86,7 +86,7 @@ diff --git a/Sources/AppBundle/mouse/modifierDrag.swift b/Sources/AppBundle/mous
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundle/mouse/modifierDrag.swift
-@@ -0,0 +1,229 @@
+@@ -0,0 +1,233 @@
 +@preconcurrency import AppKit
 +import Common
 +
@@ -145,6 +145,8 @@ new file mode 100644
 +private nonisolated let mouseDragEventTapCallback: CGEventTapCallBack = { _, type, cgEvent, _ in
 +    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
 +        Task { @MainActor in
++            isSuppressingMouseDragEvents = false
++            cancelMouseDrag(at: mouseLocation)
 +            if let eventTap = mouseDragEventTap {
 +                CGEvent.tapEnable(tap: eventTap, enable: true)
 +            }
@@ -162,7 +164,9 @@ new file mode 100644
 +            case .leftMouseDragged:
 +                if isSuppressingMouseDragEvents { continueMouseDrag(event) }
 +            case .leftMouseUp:
-+                if isSuppressingMouseDragEvents { cancelMouseDrag() }
++                if isSuppressingMouseDragEvents {
++                    cancelMouseDrag(at: event.locationInWindow.withYAxisFlipped)
++                }
 +            default: break
 +        }
 +        let suppress = isSuppressingMouseDragEvents
@@ -264,7 +268,7 @@ new file mode 100644
 +}
 +
 +@MainActor
-+private func cancelMouseDrag() {
++private func cancelMouseDrag(at dropLocation: CGPoint = mouseLocation) {
 +    mouseDragStartTask?.cancel()
 +    mouseDragStartTask = nil
 +    mouseDragUpdateTimer?.invalidate()
@@ -275,7 +279,7 @@ new file mode 100644
 +    mouseDragState = nil
 +    guard state.hasStarted else { return }
 +    if !state.wasFloating, let window = Window.get(byId: state.windowId) {
-+        tileDraggedWindow(window, at: mouseLocation)
++        tileDraggedWindow(window, at: dropLocation)
 +    }
 +    currentlyManipulatedWithMouseWindowId = nil
 +    scheduleCancellableCompleteRefreshSession(.globalObserver("mouseDragEnded"))
