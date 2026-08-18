@@ -1,4 +1,4 @@
-# Summary: Adds a configurable modifier gesture that temporarily floats a window while dragging and retiles it at the drop point.
+# Summary: Adds a configurable modifier gesture that temporarily floats a window while dragging and retiles it at the drop point, splitting the window it is dropped on the way dwindle does.
 
 diff --git a/Sources/AppBundle/command/impl/ReloadConfigCommand.swift b/Sources/AppBundle/command/impl/ReloadConfigCommand.swift
 --- a/Sources/AppBundle/command/impl/ReloadConfigCommand.swift
@@ -86,7 +86,7 @@ diff --git a/Sources/AppBundle/mouse/modifierDrag.swift b/Sources/AppBundle/mous
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundle/mouse/modifierDrag.swift
-@@ -0,0 +1,233 @@
+@@ -0,0 +1,269 @@
 +@preconcurrency import AppKit
 +import Common
 +
@@ -301,8 +301,44 @@ new file mode 100644
 +        return
 +    }
 +
-+    let insertAfter = location.getProjection(parent.orientation) >= targetRect.center.getProjection(parent.orientation)
-+    window.bind(to: parent, adaptiveWeight: WEIGHT_AUTO, index: targetIndex + (insertAfter ? 1 : 0))
++    switch mouseDropPlacement(
++        targetRect: targetRect,
++        targetIndex: targetIndex,
++        parentOrientation: parent.orientation,
++        drop: location,
++    ) {
++        case .sibling(let index):
++            window.bind(to: parent, adaptiveWeight: WEIGHT_AUTO, index: index)
++        case .split(let orientation, let index):
++            let splitContainer = TilingContainer(
++                parent: parent,
++                adaptiveWeight: target.getWeight(parent.orientation),
++                orientation,
++                .tiles,
++                index: targetIndex,
++            )
++            target.bind(to: splitContainer, adaptiveWeight: WEIGHT_AUTO, index: 0)
++            window.bind(to: splitContainer, adaptiveWeight: WEIGHT_AUTO, index: index)
++    }
++}
++
++enum MouseDropPlacement: Equatable {
++    /// The dropped window splits the target window along `orientation` and takes `index` in the new container.
++    case split(orientation: Orientation, index: Int)
++    /// The split direction already matches the target's parent, so the dropped window becomes a plain sibling.
++    case sibling(index: Int)
++}
++
++/// Hyprland-style dwindle drop: the dropped window splits the window it lands on. The split direction follows the
++/// target's aspect ratio, and the drop point decides which half of the target the dropped window takes.
++/// A split along the parent's own orientation is a plain sibling insertion instead, because nested containers that
++/// repeat their parent's orientation get flipped by opposite-orientation normalization.
++func mouseDropPlacement(targetRect: Rect, targetIndex: Int, parentOrientation: Orientation, drop: CGPoint) -> MouseDropPlacement {
++    let orientation: Orientation = targetRect.width > targetRect.height ? .h : .v
++    let insertAfter = drop.getProjection(orientation) >= targetRect.center.getProjection(orientation)
++    return orientation == parentOrientation
++        ? .sibling(index: targetIndex + (insertAfter ? 1 : 0))
++        : .split(orientation: orientation, index: insertAfter ? 1 : 0)
 +}
 +
 +func mouseDragTopLeft(initialWindowTopLeft: CGPoint, initialMouse: CGPoint, currentMouse: CGPoint) -> CGPoint {
@@ -369,7 +405,7 @@ diff --git a/Sources/AppBundleTests/mouse/ModifierDragTest.swift b/Sources/AppBu
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundleTests/mouse/ModifierDragTest.swift
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,51 @@
 +@testable import AppBundle
 +import XCTest
 +
@@ -381,6 +417,44 @@ new file mode 100644
 +            currentMouse: CGPoint(x: 300, y: 380),
 +        )
 +        assertEquals(topLeft, CGPoint(x: 150, y: 280))
++    }
++
++    func testDropOnTallWindowSplitsItHorizontallyIntoRows() {
++        // A tall window inside a horizontal parent: dropping on its top half puts the window above it.
++        let target = Rect(topLeftX: 0, topLeftY: 0, width: 400, height: 900)
++        assertEquals(
++            mouseDropPlacement(targetRect: target, targetIndex: 0, parentOrientation: .h, drop: CGPoint(x: 200, y: 100)),
++            .split(orientation: .v, index: 0),
++        )
++        assertEquals(
++            mouseDropPlacement(targetRect: target, targetIndex: 0, parentOrientation: .h, drop: CGPoint(x: 200, y: 800)),
++            .split(orientation: .v, index: 1),
++        )
++    }
++
++    func testDropOnWideWindowSplitsItVerticallyIntoColumns() {
++        let target = Rect(topLeftX: 0, topLeftY: 0, width: 900, height: 400)
++        assertEquals(
++            mouseDropPlacement(targetRect: target, targetIndex: 1, parentOrientation: .v, drop: CGPoint(x: 100, y: 200)),
++            .split(orientation: .h, index: 0),
++        )
++        assertEquals(
++            mouseDropPlacement(targetRect: target, targetIndex: 1, parentOrientation: .v, drop: CGPoint(x: 800, y: 200)),
++            .split(orientation: .h, index: 1),
++        )
++    }
++
++    func testDropSplittingAlongParentOrientationBecomesSibling() {
++        // Nested containers repeating the parent's orientation get flipped by normalization, so insert as a sibling.
++        let target = Rect(topLeftX: 0, topLeftY: 0, width: 900, height: 400)
++        assertEquals(
++            mouseDropPlacement(targetRect: target, targetIndex: 2, parentOrientation: .h, drop: CGPoint(x: 100, y: 200)),
++            .sibling(index: 2),
++        )
++        assertEquals(
++            mouseDropPlacement(targetRect: target, targetIndex: 2, parentOrientation: .h, drop: CGPoint(x: 800, y: 200)),
++            .sibling(index: 3),
++        )
 +    }
 +}
 
