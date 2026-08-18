@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Current `Hyprspace` patches are based on AeroSpace v0.21.1-Beta
 
+## [Unreleased]
+
+### Added
+
+- Hold `alt` and left-drag anywhere inside a managed window to temporarily pop it out, move it, and reinsert it into the tiling tree at the drop point. Windows that were already floating remain floating. The gesture can be changed or disabled through the `[mouse-drag]` config table.
+- `[single-window-gaps]` config table: an optional gaps override applied when a workspace has exactly one tiled window, letting a solo window use reduced (or zero) gaps to fill the screen. Reuses the full `gaps` grammar, including per-monitor arrays. An empty table means zero gaps.
+- `resize` now works on floating windows, which previously exited with an error. The window's center stays fixed, so growing expands it on all four sides and shrinking pulls it in on all four sides. `smart` and `smart-opposite` resize both axes together, since a floating window has no enclosing split to read an orientation from. Sizes are clamped to the monitor's visible area and to a 100pt minimum.
+- Starter config binds per-axis resizing: `alt--`/`alt-=` for width and `alt-_`/`alt-+` for height. This replaces the previous `resize smart` bindings on `alt--`/`alt-=`.
+
+### Fixed
+
+- `resize` on a tiling window with no enclosing container on the requested axis no longer reports the misleading "doesn't support floating windows" error, and macOS minimized/fullscreen/hidden-app windows now get their own message.
+
+### Changed
+
+- `layout floating` now centers the window on its monitor at 62.5% of the monitor's visible area on each axis, instead of leaving it at whatever frame the tiling layout happened to give it. A window popped out of the tree now lands somewhere usable regardless of where it was tiled. This replaces the previous behavior of restoring the window's last floating size.
+
 ## [0.3.0] - 2026-07-06
 
 ### Changed

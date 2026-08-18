@@ -17,3 +17,7 @@ hyprspace/canonical-config-paths.patch
 hyprspace/opinionated-config-defaults.patch
 hyprspace/accessibility-status.patch
 hyprspace/open-terminal.patch
+hyprspace/single-window-gaps.patch
+hyprspace/resize-floating-windows.patch
+hyprspace/center-floated-window.patch
+hyprspace/modifier-drag-floating.patch
