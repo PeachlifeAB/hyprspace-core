@@ -1,0 +1,130 @@
+# Summary: Adds an optional [single-window-gaps] config table used when a workspace has exactly one tiled window, letting a solo window use reduced (or zero) gaps to fill the screen. Reuses the full Gaps grammar including per-monitor arrays.
+
+diff --git a/Sources/AppBundle/config/Config.swift b/Sources/AppBundle/config/Config.swift
+--- a/Sources/AppBundle/config/Config.swift
++++ b/Sources/AppBundle/config/Config.swift
+@@ -57,6 +57,9 @@
+     var onFocusedMonitorChanged: Shell<any Command> = .empty
+ 
+     var gaps: Gaps = .zero
++    // Optional gaps override applied when a workspace has exactly one tiled window.
++    // Reuses the full Gaps grammar (inner/outer + per-monitor arrays). nil means "no override".
++    var singleWindowGaps: Gaps? = nil
+     var workspaceToMonitorForceAssignment: [String: [MonitorDescription]] = [:]
+     var modes: [String: Mode] = [:]
+     var onWindowDetected: [WindowDetectedCallback] = []
+
+diff --git a/Sources/AppBundle/config/parseConfig.swift b/Sources/AppBundle/config/parseConfig.swift
+--- a/Sources/AppBundle/config/parseConfig.swift
++++ b/Sources/AppBundle/config/parseConfig.swift
+@@ -154,6 +154,7 @@
+     modeConfigRootKey: Parser(\.modes, skipParsing(Config().modes)), // Parsed manually
+ 
+     "gaps": Parser(\.gaps, parseGaps),
++    "single-window-gaps": Parser(\.singleWindowGaps, parseSingleWindowGaps),
+     "focus-follows-mouse": Parser(\.focusFollowsMouse, parseFocusFollowsMouse),
+     "workspace-to-monitor-force-assignment": Parser(\.workspaceToMonitorForceAssignment, parseWorkspaceToMonitorAssignment),
+     "on-window-detected": Parser(\.onWindowDetected, parseOnWindowDetectedArray),
+
+diff --git a/Sources/AppBundle/config/parseGaps.swift b/Sources/AppBundle/config/parseGaps.swift
+--- a/Sources/AppBundle/config/parseGaps.swift
++++ b/Sources/AppBundle/config/parseGaps.swift
+@@ -107,6 +107,12 @@
+     parseTable(raw, .zero, gapsParser, backtrace, &c)
+ }
+ 
++// Presence of the `single-window-gaps` table enables the override. Unspecified fields default to
++// zero, so an empty `[single-window-gaps]` table means "no gaps" (single window fills the screen).
++func parseSingleWindowGaps(_ raw: OrderedJson, _ backtrace: ConfigBacktrace, _ c: inout ConfigParserContext) -> Gaps? {
++    parseGaps(raw, backtrace, &c)
++}
++
+ func parseInner(_ raw: OrderedJson, _ backtrace: ConfigBacktrace, _ c: inout ConfigParserContext) -> Gaps.Inner {
+     parseTable(raw, Gaps.Inner.zero, innerParser, backtrace, &c)
+ }
+
+diff --git a/Sources/AppBundle/layout/layoutRecursive.swift b/Sources/AppBundle/layout/layoutRecursive.swift
+--- a/Sources/AppBundle/layout/layoutRecursive.swift
++++ b/Sources/AppBundle/layout/layoutRecursive.swift
+@@ -4,7 +4,7 @@
+     @MainActor
+     func layoutWorkspace() async throws {
+         if isEffectivelyEmpty { return }
+-        let rect = workspaceMonitor.visibleRectPaddedByOuterGaps
++        let rect = workspaceMonitor.visibleRectPadded(byOuterGapsOf: effectiveGaps)
+         // If monitors are aligned vertically and the monitor below has smaller width, then macOS may not allow the
+         // window on the upper monitor to take full width. rect.height - 1 resolves this problem
+         // But I also faced this problem in monitors horizontal configuration. ¯\_(ツ)_/¯
+@@ -63,7 +63,7 @@
+     @MainActor
+     init(_ workspace: Workspace) {
+         self.workspace = workspace
+-        self.resolvedGaps = ResolvedGaps(gaps: config.gaps, monitor: workspace.workspaceMonitor)
++        self.resolvedGaps = ResolvedGaps(gaps: workspace.effectiveGaps, monitor: workspace.workspaceMonitor)
+     }
+ }
+ 
+@@ -97,9 +97,11 @@
+ 
+     @MainActor
+     fileprivate func layoutFullscreen(_ context: LayoutContext) {
++        // Fullscreen uses the single-window gaps (if configured) so `fullscreen` matches the
++        // reduced border of a solo tiled window; `--no-outer-gaps` still means true edge-to-edge.
+         let monitorRect = noOuterGapsInFullscreen
+             ? context.workspace.workspaceMonitor.visibleRect
+-            : context.workspace.workspaceMonitor.visibleRectPaddedByOuterGaps
++            : context.workspace.workspaceMonitor.visibleRectPadded(byOuterGapsOf: config.singleWindowGaps ?? config.gaps)
+         setAxFrame(monitorRect.topLeftCorner, CGSize(width: monitorRect.width, height: monitorRect.height))
+     }
+ }
+
+diff --git a/Sources/AppBundle/model/MonitorEx.swift b/Sources/AppBundle/model/MonitorEx.swift
+--- a/Sources/AppBundle/model/MonitorEx.swift
++++ b/Sources/AppBundle/model/MonitorEx.swift
+@@ -1,8 +1,13 @@
+ extension Monitor {
+     @MainActor
+     var visibleRectPaddedByOuterGaps: Rect {
++        visibleRectPadded(byOuterGapsOf: config.gaps)
++    }
++
++    @MainActor
++    func visibleRectPadded(byOuterGapsOf gaps: Gaps) -> Rect {
+         let topLeft = visibleRect.topLeftCorner
+-        let gaps = ResolvedGaps(gaps: config.gaps, monitor: self)
++        let gaps = ResolvedGaps(gaps: gaps, monitor: self)
+         return Rect(
+             topLeftX: topLeft.x + gaps.outer.left.toDouble(),
+             topLeftY: topLeft.y + gaps.outer.top.toDouble(),
+
+diff --git a/Sources/AppBundle/tree/Workspace.swift b/Sources/AppBundle/tree/Workspace.swift
+--- a/Sources/AppBundle/tree/Workspace.swift
++++ b/Sources/AppBundle/tree/Workspace.swift
+@@ -62,7 +62,7 @@
+     }
+ 
+     override func getWeight(_ targetOrientation: Orientation) -> CGFloat {
+-        workspaceMonitor.visibleRectPaddedByOuterGaps.getDimension(targetOrientation)
++        workspaceMonitor.visibleRectPadded(byOuterGapsOf: effectiveGaps).getDimension(targetOrientation)
+     }
+ 
+     override func setWeight(_ targetOrientation: Orientation, _ newValue: CGFloat) {
+@@ -102,6 +102,18 @@
+ }
+ 
+ extension Workspace {
++    // A workspace with exactly one tiled window. Floating windows are not gap-managed, so they don't count.
++    @MainActor
++    var isSingleTiledWindow: Bool {
++        rootTilingContainer.allLeafWindowsRecursive.count == 1
++    }
++
++    // Gaps to use for this workspace's layout: the single-window override when applicable, else the normal gaps.
++    @MainActor
++    var effectiveGaps: Gaps {
++        (isSingleTiledWindow ? config.singleWindowGaps : nil) ?? config.gaps
++    }
++
+     @MainActor
+     var isVisible: Bool { visibleWorkspaceToScreenPoint.keys.contains(self) }
+     @MainActor

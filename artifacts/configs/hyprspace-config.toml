@@ -68,8 +68,14 @@ alt-shift-space = 'layout floating tiling'
 alt-shift-semicolon = 'mode service'
 alt-shift-slash = 'layout tiles horizontal vertical'
 alt-shift-comma = 'layout accordion horizontal vertical'
-alt-minus = 'resize smart -50'
-alt-equal = 'resize smart +50'
+# Resize the focused window. On a popped-out (floating) window these resize around
+# its center, so it grows and shrinks evenly on all sides.
+#   alt -/=  (minus/equal)       width
+#   alt _/+  (shift minus/equal) height
+alt-minus = 'resize width -50'
+alt-equal = 'resize width +50'
+alt-shift-minus = 'resize height -50'
+alt-shift-equal = 'resize height +50'
 alt-f = 'fullscreen'
 alt-cmd-f = 'macos-native-fullscreen'
 

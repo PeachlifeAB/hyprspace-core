@@ -1,0 +1,236 @@
+# Summary: Adds floating window support to the resize command, resizing around the window center.
+
+diff --git a/Sources/AppBundle/command/impl/ResizeCommand.swift b/Sources/AppBundle/command/impl/ResizeCommand.swift
+--- a/Sources/AppBundle/command/impl/ResizeCommand.swift
++++ b/Sources/AppBundle/command/impl/ResizeCommand.swift
+@@ -5,12 +5,25 @@
+     let args: ResizeCmdArgs
+     /*conforms*/ let shouldResetClosedWindowsCache = true
+ 
+-    func run(_ env: CmdEnv, _ io: CmdIo) -> BinaryExitCode {
++    func run(_ env: CmdEnv, _ io: CmdIo) async -> BinaryExitCode {
+         guard let target = args.resolveTargetOrReportError(env, io) else { return .fail }
++        guard let window = target.windowOrNil else { return .fail(io.err(noWindowIsFocused)) }
+ 
+-        let candidates = target.windowOrNil?.parentsWithSelf
++        switch window.windowParentCases {
++            case .floatingWindowsContainer:
++                return await resizeFloatingWindow(window, args.dimension.val, args.units.val, io)
++            case .macosMinimizedWindowsContainer, .macosFullscreenWindowsContainer, .macosHiddenAppsWindowsContainer:
++                let msg = "Can't resize macOS minimized, fullscreen windows or windows of hidden apps. " +
++                    "This behavior is subject to change"
++                return .fail(io.err(msg))
++            case .macosPopupWindowsContainer, .unbound:
++                return .fail(io.err(bugPrompt()))
++            case .tilingContainer:
++                break // Tiling windows are resized by redistributing weights below
++        }
++
++        let candidates = window.parentsWithSelf
+             .filter { ($0.parent as? TilingContainer)?.layout == .tiles }
+-            ?? []
+ 
+         let orientation: Orientation?
+         let parent: TilingContainer?
+@@ -34,7 +47,7 @@
+                 parent = node?.parent as? TilingContainer
+         }
+         guard let parent else {
+-            return .fail(io.err("resize command doesn't support floating windows yet https://github.com/nikitabobko/AeroSpace/issues/9"))
++            return .fail(io.err("The window isn't enclosed in a 'tiles' container with the requested orientation"))
+         }
+         guard let orientation else { return .fail }
+         guard let node else { return .fail }
+@@ -53,3 +66,63 @@
+         return .succ
+     }
+ }
++
++/// Floating windows aren't sized by the tiling tree, so their frame is set directly.
++///
++/// The window's center is preserved: growing expands it on all sides, shrinking pulls it in on all
++/// sides. That keeps repeated resizes stable instead of walking the window toward one corner.
++@MainActor
++private func resizeFloatingWindow(
++    _ window: Window,
++    _ dimension: ResizeCmdArgs.Dimension,
++    _ units: ResizeCmdArgs.Units,
++    _ io: CmdIo,
++) async -> BinaryExitCode {
++    // The live frame is the source of truth. lastFloatingSize goes stale as soon as the window is
++    // resized with the mouse, since mouse resize is a no-op for floating windows in the model.
++    guard let rect = try? await window.getAxRect(.nonCancellable) else {
++        return .fail(io.err("Can't get the current frame of window \(window.windowId)"))
++    }
++
++    func resolve(_ current: CGFloat) -> CGFloat {
++        switch units {
++            case .set(let unit): CGFloat(unit)
++            case .add(let unit): current + CGFloat(unit)
++            case .subtract(let unit): current - CGFloat(unit)
++        }
++    }
++
++    var width = rect.width
++    var height = rect.height
++    switch dimension {
++        case .width: width = resolve(width)
++        case .height: height = resolve(height)
++        // A floating window has no enclosing split for 'smart' to read an orientation from, so both
++        // smart variants resize the window as a whole.
++        case .smart, .smartOpposite:
++            width = resolve(width)
++            height = resolve(height)
++    }
++
++    let monitorRect = (window.nodeMonitor ?? mainMonitor).visibleRect
++    width = width.coerce(in: minFloatingWindowSize ... max(minFloatingWindowSize, monitorRect.width))
++    height = height.coerce(in: minFloatingWindowSize ... max(minFloatingWindowSize, monitorRect.height))
++
++    let center = rect.center
++    let topLeft = CGPoint(
++        x: (center.x - width / 2).coerce(in: monitorRect.minX ... max(monitorRect.minX, monitorRect.maxX - width)),
++        y: (center.y - height / 2).coerce(in: monitorRect.minY ... max(monitorRect.minY, monitorRect.maxY - height)),
++    )
++    let size = CGSize(width: width, height: height)
++
++    // An explicit resize supersedes a pending `fullscreen`, which would otherwise overwrite the frame
++    // on the next layout pass.
++    window.isFullscreen = false
++    window.setAxFrame(topLeft, size)
++    window.lastFloatingSize = size
++    return .succ
++}
++
++/// Apps enforce their own AX minimum size. This only stops a floating window from being driven to
++/// something degenerate by repeated shrinking.
++private let minFloatingWindowSize: CGFloat = 100
+
+diff --git a/Sources/AppBundleTests/command/ResizeCommandTest.swift b/Sources/AppBundleTests/command/ResizeCommandTest.swift
+--- a/Sources/AppBundleTests/command/ResizeCommandTest.swift
++++ b/Sources/AppBundleTests/command/ResizeCommandTest.swift
+@@ -163,4 +163,102 @@
+         let result = await parseCommand("resize width +2").cmdOrDie.run(.defaultEnv, .emptyStdin)
+         assertEquals(result.exitCode.rawValue, 2)
+     }
++
++    // MARK: floating windows
++
++    @MainActor
++    private func newFloatingWindow() -> TestWindow {
++        let window = TestWindow.new(
++            id: 1,
++            parent: Workspace.get(byName: name).floatingWindowsContainer,
++            rect: Rect(topLeftX: 300, topLeftY: 300, width: 200, height: 200),
++        )
++        assertEquals(window.focusWindow(), true)
++        return window
++    }
++
++    func testFloatingSmartAdd_growsBothAxesAroundCenter() async {
++        let window = newFloatingWindow()
++
++        await parseCommand("resize smart +50").cmdOrDie.run(.defaultEnv, .emptyStdin)
++
++        let rect = try? await window.getAxRect(.nonCancellable)
++        assertEquals(rect?.width, 250)
++        assertEquals(rect?.height, 250)
++        // Center is preserved: the window grew 25pt on every side.
++        assertEquals(rect?.center, CGPoint(x: 400, y: 400))
++        assertEquals(rect?.topLeftCorner, CGPoint(x: 275, y: 275))
++    }
++
++    func testFloatingSmartSubtract_shrinksBothAxesAroundCenter() async {
++        let window = newFloatingWindow()
++
++        await parseCommand("resize smart -50").cmdOrDie.run(.defaultEnv, .emptyStdin)
++
++        let rect = try? await window.getAxRect(.nonCancellable)
++        assertEquals(rect?.width, 150)
++        assertEquals(rect?.height, 150)
++        assertEquals(rect?.center, CGPoint(x: 400, y: 400))
++    }
++
++    func testFloatingWidth_leavesHeightAlone() async {
++        let window = newFloatingWindow()
++
++        await parseCommand("resize width +50").cmdOrDie.run(.defaultEnv, .emptyStdin)
++
++        let rect = try? await window.getAxRect(.nonCancellable)
++        assertEquals(rect?.width, 250)
++        assertEquals(rect?.height, 200)
++        assertEquals(rect?.center, CGPoint(x: 400, y: 400))
++    }
++
++    func testFloatingHeight_leavesWidthAlone() async {
++        let window = newFloatingWindow()
++
++        await parseCommand("resize height +50").cmdOrDie.run(.defaultEnv, .emptyStdin)
++
++        let rect = try? await window.getAxRect(.nonCancellable)
++        assertEquals(rect?.width, 200)
++        assertEquals(rect?.height, 250)
++        assertEquals(rect?.center, CGPoint(x: 400, y: 400))
++    }
++
++    func testFloatingSet_appliesAbsoluteSize() async {
++        let window = newFloatingWindow()
++
++        await parseCommand("resize width 400").cmdOrDie.run(.defaultEnv, .emptyStdin)
++
++        let rect = try? await window.getAxRect(.nonCancellable)
++        assertEquals(rect?.width, 400)
++        assertEquals(rect?.height, 200)
++    }
++
++    func testFloatingShrink_clampsToMinimumSize() async {
++        let window = newFloatingWindow()
++
++        // 200 - 500 would be negative; the window must stay usable.
++        await parseCommand("resize smart -500").cmdOrDie.run(.defaultEnv, .emptyStdin)
++
++        let rect = try? await window.getAxRect(.nonCancellable)
++        assertEquals(rect?.width, 100)
++        assertEquals(rect?.height, 100)
++        assertEquals(rect?.center, CGPoint(x: 400, y: 400))
++    }
++
++    func testFloatingResize_updatesLastFloatingSize() async {
++        let window = newFloatingWindow()
++
++        await parseCommand("resize smart +50").cmdOrDie.run(.defaultEnv, .emptyStdin)
++
++        // lastFloatingSize feeds tiling->floating toggles and unhideFromCorner
++        assertEquals(window.lastFloatingSize, CGSize(width: 250, height: 250))
++    }
++
++    func testFloatingResize_succeeds() async {
++        let window = newFloatingWindow()
++
++        let result = await parseCommand("resize smart +50").cmdOrDie.run(.defaultEnv, .emptyStdin)
++        assertEquals(result.exitCode.rawValue, 0)
++        assertEquals(window.isFloating, true)
++    }
+ }
+
+diff --git a/docs/aerospace-resize.adoc b/docs/aerospace-resize.adoc
+--- a/docs/aerospace-resize.adoc
++++ b/docs/aerospace-resize.adoc
+@@ -33,6 +33,17 @@
+ * If the `<number>` is prefixed with `-` then the dimension is decreased
+ * If the `<number>` is prefixed with neither `+` nor `-` then the command changes the absolute value of the dimension
+ 
++=== Floating windows
++
++Floating windows are resized directly, rather than by redistributing weights among tiling siblings.
++
++* The window's center stays fixed. Growing expands the window on all four sides, shrinking pulls it
++in on all four sides, so repeated resizes don't walk the window toward a corner.
++* A floating window has no enclosing split for `smart` to read an orientation from, so `smart` and
++`smart-opposite` both resize the window as a whole — width and height together.
++* The resulting size is clamped to the monitor's visible area, and to a 100pt minimum. Apps also
++enforce their own minimum size.
++
+ // =========================================================== Options
+ include::./util/conditional-options-header.adoc[]
+ 

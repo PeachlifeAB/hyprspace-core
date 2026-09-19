@@ -1,0 +1,88 @@
+# Summary: Centers a window on its monitor at a default size when it is popped out to floating.
+
+diff --git a/Sources/AppBundle/command/impl/LayoutCommand.swift b/Sources/AppBundle/command/impl/LayoutCommand.swift
+--- a/Sources/AppBundle/command/impl/LayoutCommand.swift
++++ b/Sources/AppBundle/command/impl/LayoutCommand.swift
+@@ -76,10 +76,35 @@
+                 guard let window = target.windowOrNil else { return .fail(io.err(noWindowIsFocused)) }
+                 let workspace = target.workspace
+                 window.bindAsFloatingWindow(to: workspace)
+-                if let size = window.lastFloatingSize { window.setAxFrame(nil, size) }
++                floatWindowInMonitorCenter(window, fallbackMonitor: workspace.workspaceMonitor)
+                 return .succ
+         }
+     }
++}
++
++/// Fraction of the monitor's visible area a freshly popped-out window covers on each axis.
++private let floatingWindowMonitorFraction: CGFloat = 0.625
++
++/// Place a newly floated window in the middle of its monitor at a predictable default size.
++///
++/// A window that was just popped out of the tiling tree keeps whatever frame the tiling layout gave
++/// it, which is rarely a sensible floating frame. Centering it makes `layout floating` land the
++/// window somewhere usable regardless of where it was tiled.
++@MainActor private func floatWindowInMonitorCenter(_ window: Window, fallbackMonitor: Monitor) {
++    let rect = (window.nodeMonitor ?? fallbackMonitor).visibleRect
++    let size = CGSize(
++        width: rect.width * floatingWindowMonitorFraction,
++        height: rect.height * floatingWindowMonitorFraction,
++    )
++    let topLeft = CGPoint(
++        x: rect.minX + (rect.width - size.width) / 2,
++        y: rect.minY + (rect.height - size.height) / 2,
++    )
++    // An explicit placement supersedes a pending `fullscreen`, which would otherwise overwrite the
++    // frame on the next layout pass.
++    window.isFullscreen = false
++    window.setAxFrame(topLeft, size)
++    window.lastFloatingSize = size
+ }
+ 
+ @MainActor private func changeTilingLayout(
+
+diff --git a/Sources/AppBundleTests/command/LayoutCommandTest.swift b/Sources/AppBundleTests/command/LayoutCommandTest.swift
+--- a/Sources/AppBundleTests/command/LayoutCommandTest.swift
++++ b/Sources/AppBundleTests/command/LayoutCommandTest.swift
+@@ -169,6 +169,26 @@
+         assertEquals(focus.windowOrNil?.windowId, 1)
+     }
+ 
++    func testTilingToFloating_centersWindowAtDefaultSize() async {
++        let workspace = Workspace.get(byName: name)
++        var window: TestWindow!
++        workspace.rootTilingContainer.apply {
++            window = TestWindow.new(id: 1, parent: $0)
++            assertEquals(window.focusWindow(), true)
++        }
++
++        await parseCommand("layout floating").cmdOrDie.run(.defaultEnv, .emptyStdin)
++
++        let monitor = workspace.workspaceMonitor.visibleRect
++        let rect = try? await window.getAxRect(.nonCancellable)
++        // Covers 62.5% of the monitor's visible area on each axis
++        assertEquals(rect?.size, CGSize(width: monitor.width * 0.625, height: monitor.height * 0.625))
++        // and sits in the middle of it
++        assertTrue(abs((rect?.center.x ?? 0) - monitor.center.x) < 1)
++        assertTrue(abs((rect?.center.y ?? 0) - monitor.center.y) < 1)
++        assertEquals(window.lastFloatingSize, rect?.size)
++    }
++
+     func testFloatingToTiling() async {
+         let workspace = Workspace.get(byName: name)
+         workspace.floatingWindowsContainer.apply {
+
+diff --git a/docs/aerospace-layout.adoc b/docs/aerospace-layout.adoc
+--- a/docs/aerospace-layout.adoc
++++ b/docs/aerospace-layout.adoc
+@@ -52,6 +52,10 @@
+ * `tiling|floating` - Toggle between floating/tiling mode
+ +
+ If several `<target-layout>` are supplied, then the first one that doesn't describe the currently active layout is applied.
+++
++Switching a window to `floating` centers it on its monitor at 62.5% of the monitor's visible area on
++each axis, instead of leaving it at whatever frame the tiling layout gave it. Use
++`aerospace resize` to adjust it from there, or `aerospace position` for a different placement.
+ 
+ // =========================================================== Examples
+ include::./util/conditional-examples-header.adoc[]
