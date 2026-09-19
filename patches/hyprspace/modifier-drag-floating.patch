@@ -86,7 +86,7 @@ diff --git a/Sources/AppBundle/mouse/modifierDrag.swift b/Sources/AppBundle/mous
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundle/mouse/modifierDrag.swift
-@@ -0,0 +1,269 @@
+@@ -0,0 +1,310 @@
 +@preconcurrency import AppKit
 +import Common
 +
@@ -99,6 +99,8 @@ new file mode 100644
 +}
 +
 +private let mouseDragModifierMask: NSEvent.ModifierFlags = [.option, .control, .command, .shift]
++/// Stamped on the mouse-down that `beginMouseDrag` replays so that the tap lets its own event through.
++private let mouseDragReplayMarker: Int64 = 0x4879_7072_5370_6163
 +
 +@MainActor private var mouseDragEventTap: CFMachPort? = nil
 +@MainActor private var mouseDragEventTapSource: CFRunLoopSource? = nil
@@ -154,13 +156,17 @@ new file mode 100644
 +        return Unmanaged.passUnretained(cgEvent)
 +    }
 +
++    if cgEvent.getIntegerValueField(.eventSourceUserData) == mouseDragReplayMarker {
++        return Unmanaged.passUnretained(cgEvent)
++    }
++
 +    guard let event = NSEvent(cgEvent: cgEvent) else { return Unmanaged.passUnretained(cgEvent) }
 +    let suppress = MainActor.assumeIsolated {
 +        switch type {
 +            case .leftMouseDown:
 +                isSuppressingMouseDragEvents =
 +                    event.modifierFlags.intersection(mouseDragModifierMask) == config.mouseDrag.modifiers
-+                if isSuppressingMouseDragEvents { beginMouseDrag(event) }
++                if isSuppressingMouseDragEvents { beginMouseDrag(event, cgEvent) }
 +            case .leftMouseDragged:
 +                if isSuppressingMouseDragEvents { continueMouseDrag(event) }
 +            case .leftMouseUp:
@@ -182,37 +188,72 @@ new file mode 100644
 +}
 +
 +@MainActor
-+private func beginMouseDrag(_ event: NSEvent) {
++private func beginMouseDrag(_ event: NSEvent, _ cgEvent: CGEvent) {
 +    guard event.modifierFlags.intersection(mouseDragModifierMask) == config.mouseDrag.modifiers else { return }
 +
 +    cancelMouseDrag()
 +    let initialMouse = event.locationInWindow.withYAxisFlipped
++    let flags = cgEvent.flags
++    let clickState = cgEvent.getIntegerValueField(.mouseEventClickState)
 +    mouseDragStartTask = Task.startUnstructured { @MainActor in
-+        guard RunSessionGuard.isServerEnabled != nil else { return }
-+        guard let windowId = await windowId(at: initialMouse), let window = Window.get(byId: windowId) else { return }
-+        try checkCancellation()
-+        guard let initialFrame = try await window.getAxRect(.cancellable) else { return }
-+        try checkCancellation()
-+        guard window.nodeWorkspace != nil else { return }
-+
-+        switch window.windowParentCases {
-+            case .tilingContainer, .floatingWindowsContainer: break
-+            case .unbound, .macosFullscreenWindowsContainer, .macosMinimizedWindowsContainer,
-+                 .macosPopupWindowsContainer, .macosHiddenAppsWindowsContainer: return
-+        }
-+
-+        mouseDragState = MouseDragState(
-+            windowId: window.windowId,
-+            initialMouse: initialMouse,
-+            initialFrame: initialFrame,
-+            wasFloating: window.isFloating,
-+        )
++        if try await resolveMouseDragState(initialMouse) { return }
++        replaySuppressedMouseDown(at: initialMouse, flags: flags, clickState: clickState)
 +    }
++}
++
++/// Returns `true` once `mouseDragState` is set, `false` if there is no window eligible for the gesture.
++@MainActor
++private func resolveMouseDragState(_ initialMouse: CGPoint) async throws -> Bool {
++    guard RunSessionGuard.isServerEnabled != nil else { return false }
++    guard let windowId = await windowId(at: initialMouse), let window = Window.get(byId: windowId) else { return false }
++    try checkCancellation()
++    guard let initialFrame = try await window.getAxRect(.cancellable) else { return false }
++    try checkCancellation()
++    guard window.nodeWorkspace != nil else { return false }
++
++    switch window.windowParentCases {
++        case .tilingContainer, .floatingWindowsContainer: break
++        case .unbound, .macosFullscreenWindowsContainer, .macosMinimizedWindowsContainer,
++             .macosPopupWindowsContainer, .macosHiddenAppsWindowsContainer: return false
++    }
++
++    mouseDragState = MouseDragState(
++        windowId: window.windowId,
++        initialMouse: initialMouse,
++        initialFrame: initialFrame,
++        wasFloating: window.isFloating,
++    )
++    return true
++}
++
++/// The mouse-down is swallowed before it is known whether the gesture has a window to drag. When it doesn't, give the
++/// click back to the app and stop suppressing the rest of the gesture.
++@MainActor
++private func replaySuppressedMouseDown(at location: CGPoint, flags: CGEventFlags, clickState: Int64) {
++    guard isSuppressingMouseDragEvents else { return }
++    isSuppressingMouseDragEvents = false
++    guard let down = CGEvent(
++        mouseEventSource: nil,
++        mouseType: .leftMouseDown,
++        mouseCursorPosition: location,
++        mouseButton: .left,
++    ) else { return }
++    down.flags = flags
++    down.setIntegerValueField(.mouseEventClickState, value: clickState)
++    down.setIntegerValueField(.eventSourceUserData, value: mouseDragReplayMarker)
++    down.post(tap: .cgSessionEventTap)
 +}
 +
 +@MainActor
 +private func continueMouseDrag(_ event: NSEvent) {
-+    guard var state = mouseDragState, let window = Window.get(byId: state.windowId) else {
++    // `mouseDragStartTask` still being around means the gesture is mid-initialisation: dropping the event is right,
++    // cancelling isn't, because `cancelMouseDrag` would kill that task and lose the drag.
++    guard let current = mouseDragState else {
++        if mouseDragStartTask == nil { cancelMouseDrag() }
++        return
++    }
++    var state = current
++    guard let window = Window.get(byId: state.windowId) else {
 +        cancelMouseDrag()
 +        return
 +    }
