@@ -51,6 +51,38 @@ For the user-facing config guide, see [`artifacts/docs/config.md`](artifacts/doc
 
 Hyprspace adds higher-level app window commands like `new-window-or-open`, and its target behavior is focus-driven insertion: repeated app-window spawning should respect the workspace and focus context you are currently in, instead of jumping back to an older workspace just because the app is already running elsewhere.
 
+#### Application launch arguments
+
+`new-window-or-open` passes application-specific launch arguments through to `/usr/bin/open`. The first dash-prefixed token starts application arguments; everything before it is the app name. `--args` is `/usr/bin/open`'s delimiter — it separates Hyprspace options from application argv and is not itself delivered to the application.
+
+```toml
+# Both forms are equivalent:
+alt-b = 'new-window-or-open Helium --args --profile-directory=Default'
+alt-b = 'new-window-or-open "Helium --args --profile-directory=Default"'
+
+# Multiword app names and app-owned single-dash options are supported:
+alt-a = 'new-window-or-open "Activity Monitor" --args -OpenMainWindow 0'
+```
+
+A trailing `position <preset>` action is reserved as the final two tokens:
+
+```toml
+alt-b = 'new-window-or-open Helium --args --profile-directory=Default position center'
+```
+
+#### Argument-profile instance routing
+
+Each distinct set of launch arguments defines a separate application instance profile. When you trigger a binding whose argument profile is already alive, Hyprspace opens a new window in that exact instance. When the argument profile differs from any live instance, Hyprspace launches a separate instance via `open -na` so the old instance is preserved:
+
+```toml
+alt-b = 'new-window-or-open "Activity Monitor" --args -OpenMainWindow 0'
+alt-c = 'new-window-or-open "Activity Monitor" --args -OpenMainWindow 1'
+```
+
+Pressing `alt-b` launches Activity Monitor with profile `0`. Pressing `alt-c` while profile `0` is alive detects a different profile and launches a second instance with profile `1` via `open -na` — both instances stay alive independently.
+
+If a live instance has no usable "New Window" menu item (as with Activity Monitor), Hyprspace falls back to `open -na` with the same profile instead of failing. Profile tracking is process-local: if Hyprspace restarts, a running untracked app with non-empty arguments launches as a new instance to guarantee argument delivery.
+
 ### Floating placement presets
 
 Hyprspace also adds named floating placement presets so common utility windows can be placed predictably without external helpers. The current preset surface includes center, panel, and corner-style placements through the `position` command and `new-window-or-open ... position <preset>` flow.

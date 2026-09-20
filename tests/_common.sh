@@ -22,10 +22,7 @@ hyprspace_bundle_short_version() {
 
 hyprspace_expected_display_version() {
     local short_version="$1"
-    local base_version
-    # shellcheck disable=SC2154
-    base_version="$(tr -d '\r' <"$root_dir/aerospace_version.txt")"
-    printf 'Hyprspace v%s (AeroSpace %s)\n' "$short_version" "$base_version"
+    printf 'Hyprspace v%s\n' "$short_version"
 }
 
 hyprspace_assert_release_artifact_versions() {

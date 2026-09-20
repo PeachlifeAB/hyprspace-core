@@ -32,12 +32,12 @@ new file mode 100644
 +    func run(_ env: CmdEnv, _ io: CmdIo) async -> BinaryExitCode {
 +        do {
 +            if let postOpenAction = args.postOpenAction {
-+                guard let windowId = try await OpenTerminalFlow.performAndResolveWindowId(appName: args.appName.val, command: args.command.val, newInstance: args.newInstance, env: env, io: io) else {
++                guard let windowId = try await OpenTerminalFlow.performAndResolveWindowId(appName: args.appName.val, command: args.command.val, newInstance: args.newInstance, io: io) else {
 +                    return .fail
 +                }
 +                return await run(postOpenAction, on: windowId, env, io)
 +            }
-+            return .from(bool: try await OpenTerminalFlow.perform(appName: args.appName.val, command: args.command.val, newInstance: args.newInstance, env: env, io: io))
++            return .from(bool: try await OpenTerminalFlow.perform(appName: args.appName.val, command: args.command.val, newInstance: args.newInstance, io: io))
 +        } catch {
 +            return .fail(io.err("\(error)"))
 +        }
@@ -58,7 +58,7 @@ diff --git a/Sources/AppBundle/command/impl/OpenTerminalFlow.swift b/Sources/App
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundle/command/impl/OpenTerminalFlow.swift
-@@ -0,0 +1,163 @@
+@@ -0,0 +1,162 @@
 +import AppKit
 +import Common
 +import Darwin
@@ -66,7 +66,7 @@ new file mode 100644
 +
 +enum OpenTerminalFlow {
 +    @MainActor
-+    static func perform(appName: String, command: String, newInstance: Bool, env: CmdEnv, io: CmdIo) async throws -> Bool {
++    static func perform(appName: String, command: String, newInstance: Bool, io: CmdIo) async throws -> Bool {
 +        guard let bundleId = resolvedBundleId(for: appName) else {
 +            io.err("open-terminal only supports Ghostty and Terminal.app, got '\(appName)'"); return false
 +        }
@@ -77,7 +77,7 @@ new file mode 100644
 +    }
 +
 +    @MainActor
-+    static func performAndResolveWindowId(appName: String, command: String, newInstance: Bool, env: CmdEnv, io: CmdIo) async throws -> UInt32? {
++    static func performAndResolveWindowId(appName: String, command: String, newInstance: Bool, io: CmdIo) async throws -> UInt32? {
 +        guard let bundleId = resolvedBundleId(for: appName) else {
 +            _ = io.err("open-terminal only supports Ghostty and Terminal.app, got '\(appName)'")
 +            return nil
@@ -108,9 +108,8 @@ new file mode 100644
 +        let shell = userDefaultShell()
 +        let shellCommand = "\(appleScriptEscape(shell)) -ilc \(appleScriptEscape(shellQuote(command + "; exec -l \(shellQuote(shell))")))"
 +
-+        let script: String
-+        if bundleId == KnownBundleId.ghostty.rawValue {
-+            script = """
++        let script: String = if bundleId == KnownBundleId.ghostty.rawValue {
++            """
 +            tell application "Ghostty"
 +                set cfg to new surface configuration
 +                set command of cfg to "\(shellCommand)"
@@ -121,7 +120,7 @@ new file mode 100644
 +            // Pattern from Apple docs and bgtail: launch (no window), create an
 +            // empty tab and capture its reference, then run the command in that
 +            // exact tab. Avoids the double-window race when Terminal cold-starts.
-+            script = """
++            """
 +            tell application "Terminal"
 +                launch
 +                set createdTab to do script ""
@@ -182,12 +181,12 @@ new file mode 100644
 +
 +    private static func appleScriptEscape(_ s: String) -> String {
 +        s.replacingOccurrences(of: "\\", with: "\\\\")
-+         .replacingOccurrences(of: "\"", with: "\\\"")
++            .replacingOccurrences(of: "\"", with: "\\\"")
 +    }
 +
 +    private static func userDefaultShell() -> String {
-+        if let pw = getpwuid(getuid()), let shell = pw.pointee.pw_shell {
-+            return String(cString: shell)
++        if let pw = unsafe getpwuid(getuid()), let shell = unsafe pw.pointee.pw_shell {
++            return unsafe String(cString: shell)
 +        }
 +        return "/bin/sh"
 +    }
@@ -209,7 +208,7 @@ new file mode 100644
 +
 +    @MainActor
 +    private static func waitForNewFocusedWindowId(previousWindowIds: Set<UInt32>) async throws -> UInt32? {
-+        for _ in 0..<40 {
++        for _ in 0 ..< 40 {
 +            try await Task.sleep(nanoseconds: 100_000_000)
 +            let newWindowIds = try await allAliveWindowIds().subtracting(previousWindowIds)
 +            if let focusedWindow = focus.windowOrNil, newWindowIds.contains(focusedWindow.windowId) {
@@ -260,7 +259,7 @@ new file mode 100644
 +        // new-window is an alias for new-window-or-open
 +        testParseSingleCommandSucc(
 +            "new-window Ghostty",
-+            NewWindowOrOpenCmdArgs(rawArgs: []).copy(\.appName, .initialized("Ghostty"))
++            NewWindowOrOpenCmdArgs(rawArgs: []).copy(\.launchTokens, .initialized(["Ghostty"]))
 +        )
 +    }
 +}
@@ -279,8 +278,8 @@ diff --git a/Sources/Common/cmdArgs/cmdArgsManifest.swift b/Sources/Common/cmdAr
 @@ -129,6 +130,9 @@
                  result["move-workspace-to-display"] = SubCommandParser(MoveWorkspaceToMonitorCmdArgs.init)
              case .newWindowOrOpen:
-                 result[kind.rawValue] = SubCommandParser(NewWindowOrOpenCmdArgs.init)
-+                result["new-window"] = SubCommandParser(NewWindowOrOpenCmdArgs.init)
+                 result[kind.rawValue] = SubCommandParser(parseNewWindowOrOpenCmdArgs)
++                result["new-window"] = SubCommandParser(parseNewWindowOrOpenCmdArgs)
 +            case .openTerminal:
 +                result[kind.rawValue] = SubCommandParser(OpenTerminalCmdArgs.init)
              case .position:

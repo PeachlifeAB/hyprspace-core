@@ -1,10 +1,9 @@
 # Summary: Adds the app-menu command so Hyprspace can activate a running app and inspect or click menu items through Accessibility APIs.
 
 diff --git a/Sources/AppBundle/command/Command.swift b/Sources/AppBundle/command/Command.swift
-index 344793d2..c488807e 100644
 --- a/Sources/AppBundle/command/Command.swift
 +++ b/Sources/AppBundle/command/Command.swift
-@@ -10,9 +10,16 @@ protocol Command: AeroAny, Equatable, Sendable {
+@@ -10,9 +10,16 @@
  
      /// We should reset closedWindowsCache when the command can potentially change the tree
      var shouldResetClosedWindowsCache: Bool { get }
@@ -21,11 +20,11 @@ index 344793d2..c488807e 100644
      static func == (lhs: Self, rhs: Self) -> Bool {
          return lhs.args.equals(rhs.args)
      }
+
 diff --git a/Sources/AppBundle/command/cmdManifest.swift b/Sources/AppBundle/command/cmdManifest.swift
-index c611f753..19e6a424 100644
 --- a/Sources/AppBundle/command/cmdManifest.swift
 +++ b/Sources/AppBundle/command/cmdManifest.swift
-@@ -8,6 +8,8 @@ extension CmdArgs {
+@@ -8,6 +8,8 @@
                  command = FalseCommand(args: self as! FalseCmdArgs)
              case ._true:
                  command = TrueCommand(args: self as! TrueCmdArgs)
@@ -34,12 +33,12 @@ index c611f753..19e6a424 100644
              case .balanceSizes:
                  command = BalanceSizesCommand(args: self as! BalanceSizesCmdArgs)
              case .close:
+
 diff --git a/Sources/AppBundle/command/impl/AppMenuCommand.swift b/Sources/AppBundle/command/impl/AppMenuCommand.swift
 new file mode 100644
-index 00000000..98d15a24
 --- /dev/null
 +++ b/Sources/AppBundle/command/impl/AppMenuCommand.swift
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,94 @@
 +import AppKit
 +import Common
 +import Foundation
@@ -89,9 +88,14 @@ index 00000000..98d15a24
 +        io.err("Application '\(bundleId)' is not running")
 +        return nil
 +    }
++    return await activateAppAndCollectMenuLeaves(for: app, io: io)
++}
++
++@MainActor
++func activateAppAndCollectMenuLeaves(for app: NSRunningApplication, io: CmdIo) async -> [AppMenuLeaf]? {
 +    app.activate(options: .activateIgnoringOtherApps)
 +    var waited = 0
-+    while NSWorkspace.shared.frontmostApplication?.bundleIdentifier != bundleId && waited < 20 {
++    while NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier && waited < 20 {
 +        try? await Task.sleep(nanoseconds: 100_000_000)
 +        waited += 1
 +    }
@@ -99,10 +103,10 @@ index 00000000..98d15a24
 +
 +    let axApp = AXUIElementCreateApplication(app.processIdentifier)
 +    var menuBarRaw: AnyObject?
-+    guard AXUIElementCopyAttributeValue(axApp, kAXMenuBarAttribute as CFString, &menuBarRaw) == .success,
++    guard unsafe AXUIElementCopyAttributeValue(axApp, kAXMenuBarAttribute as CFString, &menuBarRaw) == .success,
 +          let menuBarRaw,
 +          CFGetTypeID(menuBarRaw) == AXUIElementGetTypeID() else {
-+        io.err("Could not access menu bar for '\(bundleId)'")
++        io.err("Could not access menu bar for PID \(app.processIdentifier)")
 +        return nil
 +    }
 +    return collectLeaves(menuBarRaw as! AXUIElement)
@@ -110,30 +114,30 @@ index 00000000..98d15a24
 +
 +private func collectLeaves(_ element: AXUIElement, path: [String] = [], actionElement: AXUIElement? = nil) -> [AppMenuLeaf] {
 +    var childrenRaw: AnyObject?
-+    guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRaw) == .success,
++    guard unsafe AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRaw) == .success,
 +          let children = childrenRaw as? [AXUIElement], !children.isEmpty else {
 +        var titleRaw: AnyObject?
-+        guard AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &titleRaw) == .success,
++        guard unsafe AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &titleRaw) == .success,
 +              let leaf = titleRaw as? String, !leaf.isEmpty else { return [] }
 +        let fullPath = (path + [leaf]).joined(separator: " / ")
 +        return [AppMenuLeaf(element: actionElement ?? element, leaf: leaf, fullPath: fullPath)]
 +    }
 +    return children.flatMap { child -> [AppMenuLeaf] in
 +        var titleRaw: AnyObject?
-+        AXUIElementCopyAttributeValue(child, kAXTitleAttribute as CFString, &titleRaw)
++        unsafe AXUIElementCopyAttributeValue(child, kAXTitleAttribute as CFString, &titleRaw)
 +        let title = (titleRaw as? String) ?? ""
 +        var roleRaw: AnyObject?
-+        AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &roleRaw)
++        unsafe AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &roleRaw)
 +        let role = roleRaw as? String
 +        let nextActionElement = role == kAXMenuItemRole ? child : actionElement
 +        return collectLeaves(child, path: title.isEmpty ? path : path + [title], actionElement: nextActionElement)
 +    }
 +}
+
 diff --git a/Sources/AppBundle/server.swift b/Sources/AppBundle/server.swift
-index fc7bed73..4f3cc19c 100644
 --- a/Sources/AppBundle/server.swift
 +++ b/Sources/AppBundle/server.swift
-@@ -32,7 +32,7 @@ func toggleReleaseServerIfDebug(_ state: EnableCmdArgs.State) async {
+@@ -32,7 +32,7 @@
      _ = await connection.readNonAtomic()
  }
  
@@ -142,7 +146,7 @@ index fc7bed73..4f3cc19c 100644
  
  private func newConnection(_ connection: NWConnection) async { // todo add exit codes
      func answerToClient(exitCode: Int32, stdout: String = "", stderr: String = "") async {
-@@ -85,13 +85,23 @@ private func newConnection(_ connection: NWConnection) async { // todo add exit
+@@ -85,13 +85,23 @@
                  await answerToClient(exitCode: err.exitCode, stderr: err.msg)
                  continue
              case .cmd(let command):
@@ -171,11 +175,11 @@ index fc7bed73..4f3cc19c 100644
                              let cmdResult = await command.run(env, CmdStdin(request.stdin))
                              return ServerAnswer(
                                  exitCode: cmdResult.exitCode.rawValue,
+
 diff --git a/Sources/AppBundle/shell/Shell.swift b/Sources/AppBundle/shell/Shell.swift
-index e837ae5a..cb6f8845 100644
 --- a/Sources/AppBundle/shell/Shell.swift
 +++ b/Sources/AppBundle/shell/Shell.swift
-@@ -101,7 +101,7 @@ extension Shell where T == any Command {
+@@ -101,7 +101,7 @@
              case .cmd(let command):
                  let exitCode = Int32ExitCode(rawValue: await command.run(env, io).rawValue)
                  if command.shouldResetClosedWindowsCache { resetClosedWindowsCache() }
@@ -184,9 +188,9 @@ index e837ae5a..cb6f8845 100644
                  return exitCode
              case .and(let commands): return await runShellAnd(commands, env, io)
              case .empty: return Int32ExitCode(rawValue: EXIT_CODE_ZERO)
+
 diff --git a/Sources/AppBundleTests/command/AppMenuCommandTest.swift b/Sources/AppBundleTests/command/AppMenuCommandTest.swift
 new file mode 100644
-index 00000000..68d0b957
 --- /dev/null
 +++ b/Sources/AppBundleTests/command/AppMenuCommandTest.swift
 @@ -0,0 +1,16 @@
@@ -206,8 +210,8 @@ index 00000000..68d0b957
 +        )
 +    }
 +}
+
 diff --git a/Sources/Common/cmdArgs/cmdArgsManifest.swift b/Sources/Common/cmdArgs/cmdArgsManifest.swift
-index effe43e8..31a23cef 100644
 --- a/Sources/Common/cmdArgs/cmdArgsManifest.swift
 +++ b/Sources/Common/cmdArgs/cmdArgsManifest.swift
 @@ -1,6 +1,7 @@
@@ -218,7 +222,7 @@ index effe43e8..31a23cef 100644
      case balanceSizes = "balance-sizes"
      case close
      case closeAllWindowsButCurrent = "close-all-windows-but-current"
-@@ -56,6 +57,8 @@ func initSubcommands() -> [String: any SubCommandParserProtocol] {
+@@ -56,6 +57,8 @@
      var result: [String: any SubCommandParserProtocol] = [:]
      for kind in CmdKind.allCases {
          switch kind {
@@ -227,9 +231,9 @@ index effe43e8..31a23cef 100644
              case .balanceSizes:
                  result[kind.rawValue] = SubCommandParser(BalanceSizesCmdArgs.init)
              case .close:
+
 diff --git a/Sources/Common/cmdArgs/impl/AppMenuCmdArgs.swift b/Sources/Common/cmdArgs/impl/AppMenuCmdArgs.swift
 new file mode 100644
-index 00000000..5eb2ea50
 --- /dev/null
 +++ b/Sources/Common/cmdArgs/impl/AppMenuCmdArgs.swift
 @@ -0,0 +1,18 @@
@@ -251,9 +255,9 @@ index 00000000..5eb2ea50
 +    public var matchLeaf: String?
 +    public var clickFirst: Bool = false
 +}
+
 diff --git a/docs/aerospace-app-menu.adoc b/docs/aerospace-app-menu.adoc
 new file mode 100644
-index 00000000..66bba0b4
 --- /dev/null
 +++ b/docs/aerospace-app-menu.adoc
 @@ -0,0 +1,21 @@

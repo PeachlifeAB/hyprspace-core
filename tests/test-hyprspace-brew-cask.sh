@@ -63,7 +63,15 @@ fi
 # Step 1: generate the cask from a local file URI so the test is isolated
 echo "[step] building release artifacts"
 cd "$checkout_dir"
-./script/internal/build-release.sh --skip-docs --skip-shell-parser --allow-dirty --codesign-identity -
+build_bash="${HYPRSPACE_BUILD_BASH:-}"
+if [ -z "$build_bash" ]; then
+    if [ -x /opt/homebrew/bin/bash ]; then
+        build_bash=/opt/homebrew/bin/bash
+    else
+        build_bash=bash
+    fi
+fi
+"$build_bash" ./script/internal/build-release.sh --skip-docs --skip-shell-parser --allow-dirty --codesign-identity -
 
 echo "[step] generating cask from local release artifact"
 local_zip="$checkout_dir/.release/${zip_name}"

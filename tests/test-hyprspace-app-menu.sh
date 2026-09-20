@@ -13,7 +13,7 @@ log_dir="$root_dir/log/tests"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 log_file="$log_dir/${timestamp}-hyprspace-app-menu.log"
 release_cli="$checkout_dir/.release/hyprspace"
-release_app="$checkout_dir/.xcode-build/Build/Products/Release/Hyprspace.app"
+release_app="$checkout_dir/xcode/.xcode-build/Build/Products/Release/Hyprspace.app"
 target_app_name="Terminal"
 target_bundle_id="com.apple.Terminal"
 
@@ -57,7 +57,7 @@ if [[ ! -d "$checkout_dir" ]]; then
 fi
 
 if [[ ! -f "$release_cli" || ! -d "$release_app" ]]; then
-    echo "[prereq] built artifacts not found (.release/hyprspace or .xcode-build app)"
+    echo "[prereq] built artifacts not found (.release/hyprspace or xcode/.xcode-build app)"
     echo "[prereq] Run: bash tests/test-hyprspace-release-build.sh"
     exit 1
 fi

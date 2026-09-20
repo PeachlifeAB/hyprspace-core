@@ -53,8 +53,8 @@ if [[ ! -d "$checkout_dir" ]]; then
     exit 1
 fi
 
-if [[ ! -f "$release_cli" || ! -d "$checkout_dir/.xcode-build/Build/Products/Release/Hyprspace.app" ]]; then
-    echo "[prereq] built artifacts not found (.release/hyprspace or .xcode-build app)"
+if [[ ! -f "$release_cli" || ! -d "$checkout_dir/xcode/.xcode-build/Build/Products/Release/Hyprspace.app" ]]; then
+    echo "[prereq] built artifacts not found (.release/hyprspace or xcode/.xcode-build app)"
     echo "[prereq] Run: bash tests/test-hyprspace-release-build.sh"
     exit 1
 fi
@@ -65,7 +65,7 @@ HYPRSPACE_TEST_WINDOW_CLI="$release_cli"
 hyprspace_capture_clean_slate_baseline
 
 echo "[step] launching Hyprspace app server"
-nohup "$checkout_dir/.xcode-build/Build/Products/Release/Hyprspace.app/Contents/MacOS/Hyprspace" >/tmp/hyprspace-new-window-server.log 2>&1 </dev/null &
+nohup "$checkout_dir/xcode/.xcode-build/Build/Products/Release/Hyprspace.app/Contents/MacOS/Hyprspace" >/tmp/hyprspace-new-window-server.log 2>&1 </dev/null &
 HYPRSPACE_PID=$!
 trap 'hyprspace_finish_test $? cleanup_test_processes' EXIT INT TERM
 wait_until 15 1 hyprspace_server_pid_running

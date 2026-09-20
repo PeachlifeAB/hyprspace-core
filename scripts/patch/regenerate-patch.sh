@@ -8,7 +8,10 @@ PATCHES_DIR="$ROOT_DIR/patches"
 SERIES_FILE="$PATCHES_DIR/series"
 LIVE_TREE="$ROOT_DIR/AeroSpace"
 AEROSPACE_VERSION_FILE="$ROOT_DIR/aerospace_version.txt"
-ARTIFACT_EXCLUDES=(".git" ".build" ".swiftpm" ".xcode-build" ".release" ".deps" ".shell-completion" "log" "default.profraw")
+# Build artifacts, matched against paths relative to the AeroSpace checkout.
+# Upstream aa656637 moved the Xcode project under xcode/, so its derived-data
+# directory is xcode/.xcode-build rather than .xcode-build.
+ARTIFACT_EXCLUDES=(".git" ".build" ".codegraph" ".swiftpm" ".xcode-build" "xcode/.xcode-build" ".release" ".deps" ".shell-completion" "log" "default.profraw")
 
 TEMP_DIR=""
 PATCH_BIN=""

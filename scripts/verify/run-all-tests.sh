@@ -20,6 +20,7 @@ FAST_TESTS=(
     tests/test-hyprspace-init-required.sh
     tests/test-hyprspace-update-surface.sh
     tests/test-hyprspace-deinit-surface.sh
+    tests/test-hyprspace-swift-unit.sh
 )
 
 INTEGRATION_TESTS=(

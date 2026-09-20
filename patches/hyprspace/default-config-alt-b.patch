@@ -1,7 +1,7 @@
 # Summary: Changes the starter browser shortcut so alt-b opens or creates Safari instead of switching to workspace B.
 
 diff --git a/Sources/AppBundleTests/config/ConfigTest.swift b/Sources/AppBundleTests/config/ConfigTest.swift
-index 553eee65..9d705159 100644
+index 553eee65..fff3fef0 100644
 --- a/Sources/AppBundleTests/config/ConfigTest.swift
 +++ b/Sources/AppBundleTests/config/ConfigTest.swift
 @@ -27,6 +27,12 @@ final class ConfigTest: XCTestCase {
@@ -18,18 +18,18 @@ index 553eee65..9d705159 100644
  
      func testConfigVersionOutOfBounds() {
 diff --git a/docs/config-examples/default-config.toml b/docs/config-examples/default-config.toml
-index 7f707e9f..601ad940 100644
+index 2b44deea..50cbd742 100644
 --- a/docs/config-examples/default-config.toml
 +++ b/docs/config-examples/default-config.toml
-@@ -112,6 +112,7 @@ gaps.outer.right =      0
-     #     activate
-     # end tell'
-     # '''
+@@ -108,6 +108,7 @@ gaps.outer.right =      0
+     # (like in i3)
+     # alt-enter = '''exec-and-forget osascript -e \
+     # 'tell application "Terminal" to tell (do script) to activate' '''
 +    alt-b = 'new-window-or-open Safari'
  
      # See: https://nikitabobko.github.io/AeroSpace/commands#layout
      alt-slash = 'layout tiles horizontal vertical'
-@@ -144,7 +145,6 @@ gaps.outer.right =      0
+@@ -140,7 +141,6 @@ gaps.outer.right =      0
      alt-8 = 'workspace 8'
      alt-9 = 'workspace 9'
      alt-a = 'workspace A' # In your config, you can drop workspace bindings that you don't need

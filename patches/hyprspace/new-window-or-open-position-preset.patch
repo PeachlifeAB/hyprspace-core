@@ -3,7 +3,7 @@
 diff --git a/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift b/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift
 --- a/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift
 +++ b/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift
-@@ -9,37 +9,27 @@
+@@ -9,37 +9,32 @@
      /*conforms*/ let shouldRunInLightSession = false
  
      @MainActor
@@ -15,16 +15,10 @@ diff --git a/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift b/Sourc
 -            process.waitUntilExit()
 -            return process.terminationReason == .exit && process.terminationStatus == 0
 +    func run(_ env: CmdEnv, _ io: CmdIo) async -> BinaryExitCode {
-+        do {
-+            if let postOpenAction = args.postOpenAction {
-+                guard let windowId = try await NewWindowOrOpenFlow.performAndResolveWindowId(appName: args.appName.val, env: env, io: io) else {
-+                    return .fail
-+                }
-+                return await run(postOpenAction, on: windowId, env, io)
-+            }
-+            return .from(bool: try await NewWindowOrOpenFlow.perform(appName: args.appName.val, env: env, io: io))
-+        } catch {
-+            return .fail(io.err("\(error)"))
++        let launch: ApplicationLaunch
++        switch normalizeLaunch(tokens: args.launchTokens.val) {
++            case .success(let value): launch = value
++            case .failure(let error): return .fail(io.err(error))
          }
 -        let appName = app.localizedName ?? args.appName.val
 -        app.activate(options: .activateIgnoringOtherApps)
@@ -48,6 +42,18 @@ diff --git a/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift b/Sourc
 -        result.waitUntilExit()
 -        guard result.terminationReason == .exit && result.terminationStatus == 0 else {
 -            return io.err("Could not open new window for '\(args.appName.val)'")
++        do {
++            if let postOpenAction = args.postOpenAction {
++                guard let windowId = try await NewWindowOrOpenFlow.performAndResolveWindowId(launch: launch, io: io) else {
++                    return .fail
++                }
++                return await run(postOpenAction, on: windowId, env, io)
++            }
++            return .from(bool: try await NewWindowOrOpenFlow.perform(launch: launch, io: io))
++        } catch {
++            return .fail(io.err("\(error)"))
+         }
+-        return true
 +    }
 +
 +    @MainActor
@@ -57,31 +63,193 @@ diff --git a/Sources/AppBundle/command/impl/NewWindowOrOpenCommand.swift b/Sourc
 +                var positionArgs = PositionCmdArgs(rawArgs: [])
 +                positionArgs.targetPlacement = .initialized(placement)
 +                return await PositionCommand(args: positionArgs.copy(\.windowId, windowId)).run(env, io)
-         }
--        return true
++        }
      }
  }
 
 diff --git a/Sources/AppBundleTests/command/NewWindowOrOpenCommandTest.swift b/Sources/AppBundleTests/command/NewWindowOrOpenCommandTest.swift
 --- a/Sources/AppBundleTests/command/NewWindowOrOpenCommandTest.swift
 +++ b/Sources/AppBundleTests/command/NewWindowOrOpenCommandTest.swift
-@@ -4,7 +4,47 @@
+@@ -2,9 +2,210 @@
+ import Common
+ import XCTest
  
++private func launchOrNil(_ result: ResOrStr<ApplicationLaunch>) -> ApplicationLaunch? {
++    switch result {
++        case .success(let launch): launch
++        case .failure: nil
++    }
++}
++
  final class NewWindowOrOpenCommandTest: XCTestCase {
-     func testParse() {
+-    func testParse() {
 -        testParseSingleCommandSucc("new-window-or-open Ghostty", NewWindowOrOpenCmdArgs(rawArgs: []).copy(\.appName, .initialized("Ghostty")))
--        assertEquals(parseCommand("new-window-or-open").errorOrNil, "ERROR: Argument '<app-name>' is mandatory")
++    // MARK: - Parse tests
++
++    func testParseSimpleAppName() {
 +        var expected = NewWindowOrOpenCmdArgs(rawArgs: [])
-+        expected.appName = .initialized("Calculator")
++        expected.launchTokens = .initialized(["Calculator"])
 +        testParseSingleCommandSucc("new-window-or-open Calculator", expected)
 +    }
 +
-+    func testParseWithPositionPreset() {
++    func testParseMissingAppName() {
+         assertEquals(parseCommand("new-window-or-open").errorOrNil, "ERROR: Argument '<app-name>' is mandatory")
+     }
++
++    func testParsePositionPresetSuffix() {
 +        var expected = NewWindowOrOpenCmdArgs(rawArgs: [])
-+        expected.appName = .initialized("Calculator")
++        expected.launchTokens = .initialized(["Calculator"])
 +        expected.postOpenAction = .position(.center)
 +        testParseSingleCommandSucc("new-window-or-open Calculator position center", expected)
 +    }
++
++    func testParseUnquotedHeliumWithArgsAndTrailingPosition() {
++        var expected = NewWindowOrOpenCmdArgs(rawArgs: [])
++        expected.launchTokens = .initialized(["Helium", "--args", "--profile-directory=Default"])
++        expected.postOpenAction = .position(.center)
++        testParseSingleCommandSucc("new-window-or-open Helium --args --profile-directory=Default position center", expected)
++    }
++
++    func testParseQuotedHeliumInvocationWithPosition() {
++        var expected = NewWindowOrOpenCmdArgs(rawArgs: [])
++        expected.launchTokens = .initialized(["Helium --args --profile-directory=Default"])
++        expected.postOpenAction = .position(.center)
++        testParseSingleCommandSucc("new-window-or-open \"Helium --args --profile-directory=Default\" position center", expected)
++    }
++
++    func testParsePositionBeforeArgs() {
++        var expected = NewWindowOrOpenCmdArgs(rawArgs: [])
++        expected.launchTokens = .initialized(["Helium", "--args", "--profile-directory=Default"])
++        expected.postOpenAction = .position(.center)
++        testParseSingleCommandSucc("new-window-or-open Helium position center --args --profile-directory=Default", expected)
++    }
++
++    func testParseMultiwordActivityMonitorWithArgs() {
++        var expected = NewWindowOrOpenCmdArgs(rawArgs: [])
++        expected.launchTokens = .initialized(["Activity Monitor", "--args", "-OpenMainWindow", "0"])
++        testParseSingleCommandSucc("new-window-or-open \"Activity Monitor\" --args -OpenMainWindow 0", expected)
++    }
++
++    func testParseAppOwnedHelpIsLaunchToken() {
++        var expected = NewWindowOrOpenCmdArgs(rawArgs: [])
++        expected.launchTokens = .initialized(["Helium", "--args", "--help"])
++        testParseSingleCommandSucc("new-window-or-open Helium --args --help", expected)
++    }
++
++    func testParseHyprspaceHelp() {
++        testParseCommandHelp("new-window-or-open --help")
++    }
++
++    func testParseInvalidPositionPresetFails() {
++        assertEquals(parseCommand("new-window-or-open Calculator position nonsense").errorOrNil?.contains("nonsense"), true)
++    }
++
++    func testNewWindowAliasParity() {
++        var expected = NewWindowOrOpenCmdArgs(rawArgs: [])
++        expected.launchTokens = .initialized(["Helium", "--args", "--profile-directory=Default"])
++        expected.postOpenAction = .position(.center)
++        testParseSingleCommandSucc("new-window Helium --args --profile-directory=Default position center", expected)
++    }
++
++    // MARK: - Normalization tests
++
++    func testNormalizeUnquotedHelium() {
++        let result = normalizeLaunch(tokens: ["Helium", "--args", "--profile-directory=Default"])
++        XCTAssertEqual(launchOrNil(result), ApplicationLaunch(appName: "Helium", applicationArguments: ["--profile-directory=Default"]))
++    }
++
++    func testNormalizeQuotedHelium() {
++        let result = normalizeLaunch(tokens: ["Helium --args --profile-directory=Default"])
++        XCTAssertEqual(launchOrNil(result), ApplicationLaunch(appName: "Helium", applicationArguments: ["--profile-directory=Default"]))
++    }
++
++    func testNormalizeActivityMonitor() {
++        let result = normalizeLaunch(tokens: ["Activity Monitor", "--args", "-OpenMainWindow", "0"])
++        XCTAssertEqual(launchOrNil(result), ApplicationLaunch(appName: "Activity Monitor", applicationArguments: ["-OpenMainWindow", "0"]))
++    }
++
++    func testNormalizeDirectAppOptionWithoutArgsDelimiter() {
++        let result = normalizeLaunch(tokens: ["Activity Monitor", "-OpenMainWindow", "0"])
++        XCTAssertEqual(launchOrNil(result), ApplicationLaunch(appName: "Activity Monitor", applicationArguments: ["-OpenMainWindow", "0"]))
++    }
++
++    func testNormalizeNoArguments() {
++        let result = normalizeLaunch(tokens: ["Calculator"])
++        XCTAssertEqual(launchOrNil(result), ApplicationLaunch(appName: "Calculator", applicationArguments: []))
++    }
++
++    func testNormalizePreservesQuotedValueWithSpace() {
++        let result = normalizeLaunch(tokens: ["Helium", "--args", "--user-data-dir", "/tmp/Profile 1"])
++        XCTAssertEqual(launchOrNil(result), ApplicationLaunch(appName: "Helium", applicationArguments: ["--user-data-dir", "/tmp/Profile 1"]))
++    }
++
++    func testNormalizeRejectsShellOperator() {
++        let result = normalizeLaunch(tokens: ["Helium --args --profile | cat"])
++        XCTAssertNil(launchOrNil(result))
++    }
++
++    func testNormalizeEmptyTokensFails() {
++        let result = normalizeLaunch(tokens: [])
++        XCTAssertNil(launchOrNil(result))
++    }
++
++    // MARK: - Launch adapter argv tests
++
++    func testOpenArgumentsFirstInstance() {
++        let launch = ApplicationLaunch(appName: "Helium", applicationArguments: ["--profile-directory=Default"])
++        XCTAssertEqual(launch.openArguments(newInstance: false), ["-a", "Helium", "--args", "--profile-directory=Default"])
++    }
++
++    func testOpenArgumentsNewInstance() {
++        let launch = ApplicationLaunch(appName: "Activity Monitor", applicationArguments: ["-OpenMainWindow", "1"])
++        XCTAssertEqual(launch.openArguments(newInstance: true), ["-na", "Activity Monitor", "--args", "-OpenMainWindow", "1"])
++    }
++
++    func testOpenArgumentsEmpty() {
++        let launch = ApplicationLaunch(appName: "Calculator", applicationArguments: [])
++        XCTAssertEqual(launch.openArguments(newInstance: false), ["-a", "Calculator"])
++    }
++
++    // MARK: - Profile identity tests
++
++    func testDistinctProfilesAreNotEqual() {
++        let profile0 = ApplicationInstanceProfile(appName: "Activity Monitor", applicationArguments: ["-OpenMainWindow", "0"])
++        let profile1 = ApplicationInstanceProfile(appName: "Activity Monitor", applicationArguments: ["-OpenMainWindow", "1"])
++        XCTAssertNotEqual(profile0, profile1)
++    }
++
++    func testSameProfilesAreEqual() {
++        let a = ApplicationInstanceProfile(appName: "Helium", applicationArguments: ["--profile-directory=Default"])
++        let b = ApplicationInstanceProfile(appName: "Helium", applicationArguments: ["--profile-directory=Default"])
++        XCTAssertEqual(a, b)
++    }
++
++    // MARK: - Registry tests
++
++    @MainActor
++    func testRegistryRegisterAndLookup() {
++        LaunchProfileRegistry.shared.reset()
++        let profile = ApplicationInstanceProfile(appName: "TestApp", applicationArguments: ["--flag"])
++        // Use a fake PID that won't be alive; pid(for:) returns nil for dead PIDs.
++        XCTAssertNil(LaunchProfileRegistry.shared.pid(for: profile))
++        // Register with the current process PID so it appears alive.
++        let currentPid = ProcessInfo.processInfo.processIdentifier
++        LaunchProfileRegistry.shared.register(profile, pid: currentPid)
++        XCTAssertEqual(LaunchProfileRegistry.shared.pid(for: profile), currentPid)
++        LaunchProfileRegistry.shared.reset()
++    }
++
++    @MainActor
++    func testRegistryPruneRemovesDeadPid() {
++        LaunchProfileRegistry.shared.reset()
++        let profile = ApplicationInstanceProfile(appName: "TestApp", applicationArguments: [])
++        // PID 999999 is effectively never alive.
++        LaunchProfileRegistry.shared.register(profile, pid: 999_999)
++        XCTAssertNil(LaunchProfileRegistry.shared.pid(for: profile))
++        LaunchProfileRegistry.shared.reset()
++    }
++
++    // MARK: - selectNewWindowLeaf tests
 +
 +    func testSelectNewWindowLeafPrefersRealFinderWindowOverServices() {
 +        let element = AXUIElementCreateSystemWide()
@@ -113,13 +281,13 @@ diff --git a/Sources/AppBundleTests/command/NewWindowOrOpenCommandTest.swift b/S
 +        ]
 +
 +        XCTAssertEqual(selectNewWindowLeaf(from: leaves, appName: "Terminal")?.leaf, "New Window with Profile - tokyo-night")
-     }
++    }
  }
 
 diff --git a/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift b/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift
 --- a/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift
 +++ b/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift
-@@ -1,17 +1,37 @@
+@@ -1,17 +1,79 @@
  import Foundation
  
  public struct NewWindowOrOpenCmdArgs: CmdArgs {
@@ -132,49 +300,95 @@ diff --git a/Sources/Common/cmdArgs/impl/NewWindowOrOpenCmdArgs.swift b/Sources/
          kind: .newWindowOrOpen,
 -        allowInConfig: false,
 -        help: "USAGE: aerospace new-window-or-open <app-name>",
-+        help: "USAGE: aerospace new-window-or-open <app-name> [position <preset>]",
++        help: new_window_or_open_help_generated,
          flags: [:],
 -        posArgs: [newArgParser(\.appName, consumeStrCliArg, mandatoryArgPlaceholder: "<app-name>")]
-+        posArgs: [
-+            newMandatoryPosArgParser(\.appName, consumeStrCliArg, placeholder: "<app-name>"),
-+            ArgParser(\.postOpenAction, parsePostOpenAction),
-+        ]
++        posArgs: []
      )
  
 -    /*conforms*/ public var windowId: UInt32?
 -    /*conforms*/ public var workspaceName: WorkspaceName?
+-    public var appName: Lateinit<String> = .uninitialized
 +    public enum PostOpenAction: Equatable, Sendable {
 +        case position(PositionCmdArgs.Placement)
 +    }
 +
-     public var appName: Lateinit<String> = .uninitialized
++    /// Raw shell-tokenized launch tokens (app-name words plus opaque application
++    /// arguments). Normalization into `appName` and effective `applicationArguments`
++    /// happens in the AppBundle layer, where the shell lexer is available.
++    public var launchTokens: Lateinit<[String]> = .uninitialized
 +    public var postOpenAction: PostOpenAction? = nil
  }
 +
-+private func parsePostOpenAction(i: PosArgParserInput) -> ParsedCliArgs<NewWindowOrOpenCmdArgs.PostOpenAction?> {
-+    guard i.arg == "position" else {
-+        return .fail("Unknown post-open action '\(i.arg)'. Expected 'position'", advanceBy: 1)
++/// Command-specific parser for `new-window-or-open` and its `new-window` alias.
++///
++/// Unlike the generic `parseSpecificCmdArgs` loop, this parser treats the first
++/// dash-prefixed token as the application-argument boundary rather than a
++/// Hyprspace flag. Dash-prefixed tokens and everything after them are stored
++/// opaquely as launch tokens; only the reserved `position <preset>` action is
++/// extracted as a Hyprspace-owned post-open action.
++func parseNewWindowOrOpenCmdArgs(_ args: StrArrSlice) -> ParsedCmd<NewWindowOrOpenCmdArgs> {
++    let arr = args.toArray()
++
++    if arr.first == "-h" || arr.first == "--help" {
++        return .help(NewWindowOrOpenCmdArgs.info.help)
 +    }
-+    guard let rawPlacement = i.getOrNil(relativeIndex: 1) else {
-+        return .fail("<preset> is mandatory after 'position'", advanceBy: 1)
++    if arr.isEmpty {
++        return .failure("ERROR: Argument '<app-name>' is mandatory")
 +    }
-+    switch parseEnum(rawPlacement, PositionCmdArgs.Placement.self) {
-+        case .success(let placement):
-+            return .succ(.position(placement), advanceBy: 2)
-+        case .failure(let error):
-+            return .fail(error, advanceBy: 2)
++
++    var tokens = arr
++    var postOpenAction: NewWindowOrOpenCmdArgs.PostOpenAction? = nil
++
++    // Reserved terminal suffix: `position <preset>` as the final two tokens.
++    if tokens.count >= 2, tokens[tokens.count - 2] == "position" {
++        switch parseEnum(tokens.last!, PositionCmdArgs.Placement.self) {
++            case .success(let placement):
++                postOpenAction = .position(placement)
++                tokens.removeLast(2)
++            case .failure(let error):
++                return .failure(error)
++        }
 +    }
++
++    // Reserved pre-argument action: `position <preset>` immediately before the
++    // first separate dash-prefixed launch token.
++    if postOpenAction == nil,
++       let firstDashIdx = tokens.firstIndex(where: { $0.isCliDashFlag }),
++       firstDashIdx >= 2,
++       tokens[firstDashIdx - 2] == "position"
++    {
++        switch parseEnum(tokens[firstDashIdx - 1], PositionCmdArgs.Placement.self) {
++            case .success(let placement):
++                postOpenAction = .position(placement)
++                tokens.removeSubrange(firstDashIdx - 2 ..< firstDashIdx)
++            case .failure(let error):
++                return .failure(error)
++        }
++    }
++
++    if tokens.isEmpty {
++        return .failure("ERROR: Argument '<app-name>' is mandatory")
++    }
++
++    var raw = NewWindowOrOpenCmdArgs(rawArgs: args)
++    raw.launchTokens = .initialized(tokens)
++    raw.postOpenAction = postOpenAction
++    return .cmd(raw)
 +}
 
 diff --git a/Sources/Common/cmdHelpGenerated.swift b/Sources/Common/cmdHelpGenerated.swift
 --- a/Sources/Common/cmdHelpGenerated.swift
 +++ b/Sources/Common/cmdHelpGenerated.swift
-@@ -134,7 +134,7 @@
+@@ -134,7 +134,10 @@
                  [--fail-if-macos-native-fullscreen] (left|down|up|right)
      """
  let new_window_or_open_help_generated = """
 -    USAGE: new-window-or-open <app-name>
-+    USAGE: new-window-or-open <app-name> [position <preset>]
++    USAGE: new-window-or-open <app-name> [--args <app-arguments>...] [position <preset>]
++    """
++let position_help_generated = """
++    USAGE: position [-h|--help] [--window-id <window-id>] (center|topLeftCorner|topRightCorner|bottomPanel)
      """
  let reload_config_help_generated = """
      USAGE: reload-config [-h|--help] [--no-gui] [--dry-run] [--warnings-as-errors]
@@ -183,45 +397,201 @@ diff --git a/Sources/AppBundle/command/impl/NewWindowOrOpenFlow.swift b/Sources/
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundle/command/impl/NewWindowOrOpenFlow.swift
-@@ -0,0 +1,189 @@
+@@ -0,0 +1,379 @@
 +import AppKit
 +import Common
 +import Foundation
 +
++/// Normalized application launch request: the app name plus the effective
++/// application arguments (after consuming `/usr/bin/open`'s `--args` delimiter).
++struct ApplicationLaunch: Equatable, Sendable {
++    let appName: String
++    let applicationArguments: [String]
++
++    /// `/usr/bin/open` argv for this request.
++    func openArguments(newInstance: Bool) -> [String] {
++        var result = [newInstance ? "-na" : "-a", appName]
++        if !applicationArguments.isEmpty {
++            result.append("--args")
++            result.append(contentsOf: applicationArguments)
++        }
++        return result
++    }
++}
++
++/// Identity of a running application instance: app name plus the exact ordered
++/// effective application arguments. Two instances of the same application with
++/// different arguments are distinct profiles.
++struct ApplicationInstanceProfile: Hashable, Sendable {
++    let appName: String
++    let applicationArguments: [String]
++
++    static func == (lhs: Self, rhs: Self) -> Bool {
++        lhs.appName == rhs.appName && lhs.applicationArguments == rhs.applicationArguments
++    }
++
++    func hash(into hasher: inout Hasher) {
++        hasher.combine(appName)
++        hasher.combine(applicationArguments)
++    }
++}
++
++/// Process-local registry of Hyprspace-launched application instances, keyed by
++/// argument profile. Tracks which PID belongs to which argument profile so that
++/// a repeat request reuses the exact instance, while a different profile opens
++/// a separate instance via `open -na`.
++@MainActor
++final class LaunchProfileRegistry {
++    static let shared = LaunchProfileRegistry()
++    private var entries: [ApplicationInstanceProfile: pid_t] = [:]
++
++    /// Remove entries whose process has terminated.
++    func prune() {
++        entries = entries.filter { _, pid in isAlive(pid) }
++    }
++
++    func pid(for profile: ApplicationInstanceProfile) -> pid_t? {
++        guard let pid = entries[profile] else { return nil }
++        return isAlive(pid) ? pid : nil
++    }
++
++    private func isAlive(_ pid: pid_t) -> Bool {
++        kill(pid, 0) == 0
++    }
++
++    func register(_ profile: ApplicationInstanceProfile, pid: pid_t) {
++        entries[profile] = pid
++    }
++
++    /// Test-only: remove all entries.
++    func reset() {
++        entries.removeAll()
++    }
++}
++
++/// Normalize raw launch tokens (which may contain a quoted combined invocation
++/// such as `"Helium --args --profile-directory=Default"`) into an app name and
++/// effective application arguments. Re-lexes each token with the shell lexer to
++/// split embedded words, rejecting shell operators.
++func normalizeLaunch(tokens: [String]) -> ResOrStr<ApplicationLaunch> {
++    Result { () throws(String) in
++        var words: [String] = []
++        for token in tokens {
++            // A token that contains a space alongside a dash-prefixed word is a
++            // quoted combined invocation (e.g. "Helium --args --profile=Default")
++            // and must be re-lexed into flat words. Plain tokens — including
++            // separately-quoted values with spaces like "/tmp/Profile 1" — are
++            // kept verbatim so their boundaries are preserved.
++            let isCombinedInvocation = token.contains(" ")
++                && token.split(separator: " ").contains { $0.hasPrefix("-") }
++            if isCombinedInvocation {
++                switch token.shellLexerTokens() {
++                    case .success(let lexerTokens):
++                        for lt in lexerTokens {
++                            switch lt.payload {
++                                case .word(let w): words.append(w)
++                                case .end: break
++                                default: throw "Application invocation contains a shell operator '\(lt.payload)'. Only plain words are allowed."
++                            }
++                        }
++                    case .failure(let error):
++                        throw error
++                }
++            } else {
++                words.append(token)
++            }
++        }
++        guard !words.isEmpty else {
++            throw "ERROR: Argument '<app-name>' is mandatory"
++        }
++        guard let boundaryIdx = words.firstIndex(where: { $0.isCliDashFlag }) else {
++            return ApplicationLaunch(appName: words.joined(separator: " "), applicationArguments: [])
++        }
++        let appName = words[..<boundaryIdx].joined(separator: " ")
++        var launchTail = Array(words[boundaryIdx...])
++        // Consume `/usr/bin/open`'s leading `--args` delimiter; it is not part
++        // of the effective application argument profile.
++        if launchTail.first == "--args" {
++            launchTail.removeFirst()
++        }
++        return ApplicationLaunch(appName: appName, applicationArguments: launchTail)
++    }
++}
++
 +enum NewWindowOrOpenFlow {
-+    @MainActor
-+    static func perform(appName: String, env: CmdEnv, io: CmdIo) async throws -> Bool {
-+        if let runningApp = runningApplication(named: appName) {
-+            return try await triggerNewWindow(for: runningApp, env: env, io: io)
-+        } else {
-+            return launchApplication(named: appName, io: io)
-+        }
++    /// Routing decision result: whether the action succeeded, the target PID
++    /// whose new window should be resolved, and the window-ID snapshot taken
++    /// before the action.
++    struct RouteResult: Sendable {
++        let success: Bool
++        let targetPid: pid_t?
++        let previousWindowIds: Set<UInt32>
 +    }
 +
 +    @MainActor
-+    static func performAndResolveWindowId(appName: String, env: CmdEnv, io: CmdIo) async throws -> UInt32? {
-+        let runningApp = runningApplication(named: appName)
-+        let previousWindowIds = try await knownWindowIds(appBundleId: runningApp?.bundleIdentifier)
-+        let previousAllWindowIds = try await allAliveWindowIds()
-+        guard try await perform(appName: appName, env: env, io: io) else {
-+            return nil
-+        }
-+        let windowId = if let appBundleId = runningApp?.bundleIdentifier {
-+            try await waitForNewWindowId(appBundleId: appBundleId, previousWindowIds: previousWindowIds)
-+        } else {
-+            try await waitForNewFocusedWindowId(previousWindowIds: previousAllWindowIds)
-+        }
-+        guard let windowId else {
-+            _ = io.err("Failed to identify the newly opened window for '\(appName)'")
-+            return nil
-+        }
-+        return windowId
++    static func perform(launch: ApplicationLaunch, io: CmdIo) async throws -> Bool {
++        try await route(launch: launch, io: io).success
 +    }
 +
 +    @MainActor
-+    private static func runningApplication(named appName: String) -> NSRunningApplication? {
++    static func performAndResolveWindowId(launch: ApplicationLaunch, io: CmdIo) async throws -> UInt32? {
++        let result = try await route(launch: launch, io: io)
++        guard result.success else { return nil }
++        if let pid = result.targetPid,
++           let windowId = try await waitForNewWindowId(forPid: pid, previousWindowIds: result.previousWindowIds)
++        {
++            return windowId
++        }
++        // Fallback for launch paths where the new PID could not be identified.
++        if let windowId = try await waitForNewFocusedWindowId(previousWindowIds: result.previousWindowIds) {
++            return windowId
++        }
++        _ = io.err("Failed to identify the newly opened window for '\(launch.appName)'")
++        return nil
++    }
++
++    @MainActor
++    private static func route(launch: ApplicationLaunch, io: CmdIo) async throws -> RouteResult {
++        let profile = ApplicationInstanceProfile(appName: launch.appName, applicationArguments: launch.applicationArguments)
++        LaunchProfileRegistry.shared.prune()
++
++        // 1. Exact tracked live profile: target that PID and try its new-window menu.
++        if let exactPid = LaunchProfileRegistry.shared.pid(for: profile),
++           let app = NSRunningApplication(processIdentifier: exactPid)
++        {
++            let prev = try await knownWindowIds(forPid: exactPid)
++            if try await triggerNewWindow(for: app, io: io) {
++                return RouteResult(success: true, targetPid: exactPid, previousWindowIds: prev)
++            }
++            // No usable new-window menu: fall back to another instance of the same profile.
++            return await launchAndRegister(launch: launch, profile: profile, newInstance: true, previousWindowIds: prev, io: io)
++        }
++
++        // 2. Application is running (tracked under a different profile, or untracked).
++        let runningApps = runningApplications(named: launch.appName)
++        if let app = runningApps.first {
++            if launch.applicationArguments.isEmpty {
++                // Empty arguments: try the existing instance's menu, then fall back.
++                let prev = try await knownWindowIds(forPid: app.processIdentifier)
++                if try await triggerNewWindow(for: app, io: io) {
++                    return RouteResult(success: true, targetPid: app.processIdentifier, previousWindowIds: prev)
++                }
++                return await launchAndRegister(launch: launch, profile: profile, newInstance: true, previousWindowIds: prev, io: io)
++            } else {
++                // Different argument profile (or untracked with arguments): open a new instance.
++                let prev = try await allAliveWindowIds()
++                return await launchAndRegister(launch: launch, profile: profile, newInstance: true, previousWindowIds: prev, io: io)
++            }
++        }
++
++        // 3. No matching application process: launch the first instance.
++        let prev = try await allAliveWindowIds()
++        return await launchAndRegister(launch: launch, profile: profile, newInstance: false, previousWindowIds: prev, io: io)
++    }
++
++    private static func runningApplications(named appName: String) -> [NSRunningApplication] {
 +        let candidateNames = normalizedApplicationNames(from: appName)
-+        return NSWorkspace.shared.runningApplications.first { app in
++        return NSWorkspace.shared.runningApplications.filter { app in
 +            if let localizedName = app.localizedName?.lowercased(), candidateNames.contains(localizedName) {
 +                return true
 +            }
@@ -242,30 +612,27 @@ new file mode 100644
 +    }
 +
 +    @MainActor
-+    private static func triggerNewWindow(for app: NSRunningApplication, env: CmdEnv, io: CmdIo) async throws -> Bool {
-+        guard let bundleId = app.bundleIdentifier else {
-+            io.err("Could not find bundle ID for running application '\(app.localizedName ?? "Unknown app")'"); return false
-+        }
-+
++    private static func triggerNewWindow(for app: NSRunningApplication, io: CmdIo) async throws -> Bool {
 +        let callerWorkspace = focus.workspace
-+        let previousWindowIds = try await knownWindowIds(appBundleId: bundleId)
++        let previousWindowIds = try await knownWindowIds(forPid: app.processIdentifier)
 +
-+        guard let leaves = try await activateAppAndCollectMenuLeaves(bundleId: bundleId, io: io) else {
++        guard let leaves = await activateAppAndCollectMenuLeaves(for: app, io: io) else {
 +            return false
 +        }
 +
 +        guard let leaf = selectNewWindowLeaf(from: leaves, appName: app.localizedName ?? "") else {
-+            io.err("No matching new-window menu item found for '\(app.localizedName ?? bundleId)'"); return false
++            io.err("No matching new-window menu item found for '\(app.localizedName ?? app.bundleIdentifier ?? "Unknown app")'")
++            return false
 +        }
 +        AXUIElementPerformAction(leaf.element, kAXPressAction as CFString)
-+        guard let newWindowId = try await waitForNewWindowId(appBundleId: bundleId, previousWindowIds: previousWindowIds),
++        guard let newWindowId = try await waitForNewWindowId(forPid: app.processIdentifier, previousWindowIds: previousWindowIds),
 +              let newWindow = Window.get(byId: newWindowId)
 +        else {
-+ _ = callerWorkspace.focusWorkspace()
-+ return true
-+ }
++            _ = callerWorkspace.focusWorkspace()
++            return true
++        }
 +
-+ if newWindow.nodeWorkspace != callerWorkspace {
++        if newWindow.nodeWorkspace != callerWorkspace {
 +            _ = moveWindowToWorkspace(newWindow, callerWorkspace, io, focusFollowsWindow: true, failIfNoop: false)
 +        } else {
 +            _ = callerWorkspace.focusWorkspace()
@@ -273,61 +640,98 @@ new file mode 100644
 +        return true
 +    }
 +
-+    private static func launchApplication(named appName: String, io: CmdIo) -> Bool {
++    @MainActor
++    private static func launchAndRegister(
++        launch: ApplicationLaunch,
++        profile: ApplicationInstanceProfile,
++        newInstance: Bool,
++        previousWindowIds: Set<UInt32>,
++        io: CmdIo,
++    ) async -> RouteResult {
++        let previousPids = Set(runningApplications(named: launch.appName).map(\.processIdentifier))
++        guard launchViaOpen(launch: launch, newInstance: newInstance, io: io) else {
++            return RouteResult(success: false, targetPid: nil, previousWindowIds: previousWindowIds)
++        }
++        let newApp = await waitForNewRunningApplication(named: launch.appName, previousPids: previousPids)
++        if let newApp {
++            LaunchProfileRegistry.shared.register(profile, pid: newApp.processIdentifier)
++        }
++        return RouteResult(success: true, targetPid: newApp?.processIdentifier, previousWindowIds: previousWindowIds)
++    }
++
++    private static func launchViaOpen(launch: ApplicationLaunch, newInstance: Bool, io: CmdIo) -> Bool {
 +        let process = Process()
 +        process.executableURL = URL(filePath: "/usr/bin/open")
-+        process.arguments = ["-a", appName]
++        process.arguments = launch.openArguments(newInstance: newInstance)
 +
 +        do {
 +            try process.run()
 +            process.waitUntilExit()
 +            guard process.terminationReason == .exit && process.terminationStatus == 0 else {
-+                io.err("Failed to open application '\(appName)': open exited with status \(process.terminationStatus) and reason \(process.terminationReason.rawValue)"); return false
++                io.err("Failed to open application '\(launch.appName)': open exited with status \(process.terminationStatus) and reason \(process.terminationReason.rawValue)")
++                return false
 +            }
 +            return true
 +        } catch {
-+            io.err("Failed to open application '\(appName)': \(error.localizedDescription)"); return false
++            io.err("Failed to open application '\(launch.appName)': \(error.localizedDescription)")
++            return false
 +        }
 +    }
 +
 +    @MainActor
-+    private static func knownWindowIds(appBundleId: String?) async throws -> Set<UInt32> {
-+        guard let appBundleId else { return [] }
-+        return try await aliveWindowIdsByBundleId()[appBundleId] ?? []
++    private static func waitForNewRunningApplication(named appName: String, previousPids: Set<pid_t>) async -> NSRunningApplication? {
++        let candidates = normalizedApplicationNames(from: appName)
++        for _ in 0 ..< 40 {
++            try? await Task.sleep(nanoseconds: 100_000_000)
++            let current = NSWorkspace.shared.runningApplications.filter { app in
++                if let name = app.localizedName?.lowercased(), candidates.contains(name) { return true }
++                if let bid = app.bundleIdentifier?.lowercased(), candidates.contains(bid) { return true }
++                return false
++            }
++            let newApps = current.filter { !previousPids.contains($0.processIdentifier) }
++            if let app = newApps.singleOrNil() {
++                return app
++            }
++        }
++        return nil
++    }
++
++    @MainActor
++    private static func knownWindowIds(forPid pid: pid_t) async throws -> Set<UInt32> {
++        try await aliveWindowIdsByPid()[pid] ?? []
 +    }
 +
 +    @MainActor
 +    private static func allAliveWindowIds() async throws -> Set<UInt32> {
-+        Set(try await aliveWindowIdsByBundleId().values.flatMap { $0 })
++        Set(try await aliveWindowIdsByPid().values.flatMap { $0 })
 +    }
 +
 +    @MainActor
-+    private static func aliveWindowIdsByBundleId() async throws -> [String: Set<UInt32>] {
++    private static func aliveWindowIdsByPid() async throws -> [pid_t: Set<UInt32>] {
 +        let mapping = try await MacApp.refreshAllAndGetAliveWindowIds(frontmostAppBundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
-+        var result: [String: Set<UInt32>] = [:]
++        var result: [pid_t: Set<UInt32>] = [:]
 +        for (app, windowIds) in mapping {
-+            if let bundleId = app.rawAppBundleId {
-+                for windowId in windowIds {
-+                    _ = try await MacWindow.getOrRegister(windowId: windowId, macApp: app)
-+                }
-+                result[bundleId] = Set(windowIds)
++            for windowId in windowIds {
++                _ = try await MacWindow.getOrRegister(windowId: windowId, macApp: app)
 +            }
++            result[app.pid] = Set(windowIds)
 +        }
 +        return result
 +    }
 +
-+ @MainActor
-+ private static func waitForNewWindowId(appBundleId: String, previousWindowIds: Set<UInt32>) async throws -> UInt32? {
-+ for _ in 0..<40 {
++    @MainActor
++    private static func waitForNewWindowId(forPid pid: pid_t, previousWindowIds: Set<UInt32>) async throws -> UInt32? {
++        for _ in 0 ..< 40 {
 +            try await Task.sleep(nanoseconds: 100_000_000)
 +
-+            let newWindowIds = try await knownWindowIds(appBundleId: appBundleId).subtracting(previousWindowIds)
++            let newWindowIds = try await knownWindowIds(forPid: pid).subtracting(previousWindowIds)
 +            if let windowId = newWindowIds.singleOrNil() {
 +                return windowId
 +            }
 +            if let focusedWindow = focus.windowOrNil,
 +               newWindowIds.contains(focusedWindow.windowId),
-+               focusedWindow.app.rawAppBundleId == appBundleId {
++               focusedWindow.app.pid == pid
++            {
 +                return focusedWindow.windowId
 +            }
 +        }
@@ -336,7 +740,7 @@ new file mode 100644
 +
 +    @MainActor
 +    private static func waitForNewFocusedWindowId(previousWindowIds: Set<UInt32>) async throws -> UInt32? {
-+        for _ in 0..<40 {
++        for _ in 0 ..< 40 {
 +            try await Task.sleep(nanoseconds: 100_000_000)
 +
 +            let newWindowIds = try await allAliveWindowIds().subtracting(previousWindowIds)
@@ -377,12 +781,15 @@ new file mode 100644
 diff --git a/docs/aerospace-new-window-or-open.adoc b/docs/aerospace-new-window-or-open.adoc
 --- a/docs/aerospace-new-window-or-open.adoc
 +++ b/docs/aerospace-new-window-or-open.adoc
-@@ -6,9 +6,13 @@
+@@ -6,9 +6,24 @@
  
  == Synopsis
  
 -`aerospace new-window-or-open <app-name>`
-+`aerospace new-window-or-open <app-name> [position <preset>]`
++[verse]
++// tag::synopsis[]
++aerospace new-window-or-open <app-name> [--args <app-arguments>...] [position <preset>]
++// end::synopsis[]
  
  == Description
  
@@ -391,4 +798,12 @@ diff --git a/docs/aerospace-new-window-or-open.adoc b/docs/aerospace-new-window-
 +
 +If `position <preset>` is provided, the newly opened window is placed using the requested floating preset.
 +
++Application launch arguments are passed through to `/usr/bin/open`. The first dash-prefixed token starts application arguments; `--args` is `/usr/bin/open`'s delimiter and is not delivered to the application itself. A trailing `position <preset>` is reserved as the final two tokens.
++
++Each distinct set of launch arguments defines a separate application instance profile. A repeat request with the same profile opens a new window in that exact instance; a different profile launches a separate instance via `open -na`. If a live instance has no usable "New Window" menu item, Hyprspace falls back to `open -na` with the same profile.
++
 +Example: `aerospace new-window-or-open "Finder" position center`
++
++Example: `aerospace new-window-or-open Helium --args --profile-directory=Default position center`
++
++Example: `aerospace new-window-or-open "Activity Monitor" --args -OpenMainWindow 0`

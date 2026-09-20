@@ -83,7 +83,7 @@ new file mode 100644
 +        expected.targetPlacement = .initialized(.center)
 +        let command = PositionCommand(args: expected)
 +
-+        _ = try await command.run(.defaultEnv, .emptyStdin)
++        _ = await command.run(.defaultEnv, .emptyStdin)
 +
 +        XCTAssertTrue(window.isFloating, "Window should be floating after position command")
 +
@@ -131,7 +131,7 @@ diff --git a/Sources/Common/cmdArgs/cmdArgsManifest.swift b/Sources/Common/cmdAr
 @@ -128,6 +129,8 @@
                  result["move-workspace-to-display"] = SubCommandParser(MoveWorkspaceToMonitorCmdArgs.init)
              case .newWindowOrOpen:
-                 result[kind.rawValue] = SubCommandParser(NewWindowOrOpenCmdArgs.init)
+                 result[kind.rawValue] = SubCommandParser(parseNewWindowOrOpenCmdArgs)
 +            case .position:
 +                result[kind.rawValue] = SubCommandParser(PositionCmdArgs.init)
              case .reloadConfig:
@@ -149,7 +149,7 @@ new file mode 100644
 +    public static let parser: CmdParser<Self> = cmdParser(
 +        kind: .position,
 +        allowInConfig: true,
-+        help: "USAGE: aerospace position <preset>",
++        help: position_help_generated,
 +        flags: [:],
 +        posArgs: [newArgParser(\.targetPlacement, consumePlacement, mandatoryArgPlaceholder: "<preset>")]
 +    )
