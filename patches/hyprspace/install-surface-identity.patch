@@ -1,10 +1,9 @@
 # Summary: Renames the install and release surfaces to Hyprspace: pkg product, app bundle names, shell completions, Homebrew casks, and release artifacts.
 
 diff --git a/Package.swift b/Package.swift
-index 7b7791be..31805664 100644
 --- a/Package.swift
 +++ b/Package.swift
-@@ -15,7 +15,7 @@ let package = Package(
+@@ -15,7 +15,7 @@
      platforms: [.macOS(.v13)],
      // Products define the executables and libraries a package produces, making them visible to other packages.
      products: [
@@ -13,8 +12,8 @@ index 7b7791be..31805664 100644
          // Don't use this build for release, use xcode instead
          .executable(name: "AeroSpaceApp", targets: ["AeroSpaceApp"]),
          // We only need to expose this as a product for xcode
+
 diff --git a/build-release.sh b/build-release.sh
-index 0454df92..cd34bc06 100755
 --- a/build-release.sh
 +++ b/build-release.sh
 @@ -1,131 +1,10 @@
@@ -33,7 +32,12 @@ index 0454df92..cd34bc06 100755
 -        *) echo "Unknown option $1" > /dev/stderr; exit 1 ;;
 -    esac
 -done
--
++cat >&2 <<'EOF'
++ERROR: AeroSpace/build-release.sh is an internal implementation detail for Hyprspace.
++Use ./scripts/release/publish-hyprspace-release.sh <version> for release builds.
++Use ./scripts/install/install-local.sh for local install/build flows.
++EOF
+ 
 -#############
 -### BUILD ###
 -#############
@@ -96,11 +100,7 @@ index 0454df92..cd34bc06 100755
 -.release/AeroSpace.app/Contents/Resources/Assets.car
 -.release/AeroSpace.app/Contents/Info.plist
 -.release/AeroSpace.app/Contents/PkgInfo
-+cat >&2 <<'EOF'
-+ERROR: AeroSpace/build-release.sh is an internal implementation detail for Hyprspace.
-+Use ./scripts/release/publish-hyprspace-release.sh <version> for release builds.
-+Use ./scripts/install/install-local.sh for local install/build flows.
- EOF
+-EOF
 -)
 -
 -if test "$expected_layout" != "$(find .release/AeroSpace.app)"; then
@@ -145,7 +145,7 @@ index 0454df92..cd34bc06 100755
 -    cp -r AeroSpace.app "AeroSpace-v$build_version"
 -    zip -r "AeroSpace-v$build_version.zip" "AeroSpace-v$build_version"
 -cd -
- 
+-
 -#################
 -### Brew Cask ###
 -#################
@@ -156,11 +156,11 @@ index 0454df92..cd34bc06 100755
 -        --build-version "$build_version"
 -done
 +exit 1
+
 diff --git a/build-shell-completion.sh b/build-shell-completion.sh
-index 27554e3f..ae5dd2cd 100755
 --- a/build-shell-completion.sh
 +++ b/build-shell-completion.sh
-@@ -14,7 +14,15 @@ rm -rf .shell-completion && mkdir -p \
+@@ -14,7 +14,15 @@
      --fish-script .shell-completion/fish/aerospace.fish \
      --bash-script .shell-completion/bash/aerospace
  
@@ -179,11 +179,11 @@ index 27554e3f..ae5dd2cd 100755
 +zsh -c 'autoload -Uz compinit; compinit; source ./.shell-completion/zsh/_hyprspace'
 +fish -c 'source ./.shell-completion/fish/hyprspace.fish'
 +bash -c 'source ./.shell-completion/bash/hyprspace'
+
 diff --git a/generate.sh b/generate.sh
-index a4109c43..b7e71c35 100755
 --- a/generate.sh
 +++ b/generate.sh
-@@ -3,7 +3,13 @@ cd "$(dirname "$0")"
+@@ -3,7 +3,13 @@
  source ./script/setup.sh
  
  export XCODEGEN_AEROSPACE_CODE_SIGN_IDENTITY="aerospace-codesign-certificate"
@@ -198,7 +198,7 @@ index a4109c43..b7e71c35 100755
  generate_xcodeproj=1
  generate_cmd_help=1
  generate_git_hash=0
-@@ -12,6 +18,7 @@ while test $# -gt 0; do
+@@ -12,6 +18,7 @@
          --build-version) build_version="$2"; shift 2 ;;
          --codesign-identity) XCODEGEN_AEROSPACE_CODE_SIGN_IDENTITY="$2"; shift 2 ;;
          --generate-git-hash) generate_git_hash=1; shift 1;;
@@ -206,7 +206,7 @@ index a4109c43..b7e71c35 100755
          --ignore-cmd-help) generate_cmd_help=0; shift 1 ;;
          --ignore-xcodeproj) generate_xcodeproj=0; shift 1 ;;
          *) echo "Unknown option $1"; exit 1 ;;
-@@ -23,14 +30,22 @@ if test $generate_cmd_help = 1; then
+@@ -23,14 +30,22 @@
      ./script/generate-cmd-help.sh
  fi
  
@@ -231,7 +231,7 @@ index a4109c43..b7e71c35 100755
              continue
          fi
          subcommand=$(basename $file | sed 's/^aerospace-//' | sed 's/\.adoc$//')
-@@ -39,7 +54,7 @@ entries() {
+@@ -39,7 +54,7 @@
      done
  }
  
@@ -240,7 +240,7 @@ index a4109c43..b7e71c35 100755
  // FILE IS GENERATED FROM docs/aerospace-*.adoc files
  // TO REGENERATE THE FILE RUN generate.sh
  
-@@ -48,10 +63,10 @@ $(entries)
+@@ -48,10 +63,10 @@
  ]
  EOF
  
@@ -254,11 +254,11 @@ index a4109c43..b7e71c35 100755
  EOF
  
  if test $generate_xcodeproj = 1; then
+
 diff --git a/install-from-sources.sh b/install-from-sources.sh
-index 40571854..5f2b54ed 100755
 --- a/install-from-sources.sh
 +++ b/install-from-sources.sh
-@@ -3,28 +3,89 @@ cd "$(dirname "$0")"
+@@ -3,28 +3,89 @@
  source ./script/setup.sh
  
  rebuild=1
@@ -357,8 +357,8 @@ index 40571854..5f2b54ed 100755
 +HOMEBREW_CACHE=/tmp/hyprspace-from-sources-brew-cache brew install-path ./.release/hyprspace.rb
  
  rm -rf "$(brew --prefix)/Library/Taps/aerospace-dev-user" # Compatibility. Drop after a while
+
 diff --git a/script/build-brew-cask.sh b/script/build-brew-cask.sh
-index 7467a538..8e08adc0 100755
 --- a/script/build-brew-cask.sh
 +++ b/script/build-brew-cask.sh
 @@ -2,77 +2,115 @@
@@ -514,9 +514,9 @@ index 7467a538..8e08adc0 100755
  
    Dir["#{staged_path}/$zip_root_dir/manpage/*"].each { |man| manpage man }
  end
+
 diff --git a/script/internal/build-release.sh b/script/internal/build-release.sh
 new file mode 100755
-index 00000000..c53d5bfc
 --- /dev/null
 +++ b/script/internal/build-release.sh
 @@ -0,0 +1,469 @@
@@ -989,8 +989,8 @@ index 00000000..c53d5bfc
 +    --cask-name hyprspace \
 +    --zip-uri ".release/Hyprspace-v$build_version.zip" \
 +    --build-version "$build_version"
+
 diff --git a/xcode/AeroSpace.xcodeproj/project.pbxproj b/xcode/AeroSpace.xcodeproj/project.pbxproj
-index 35b6e079..8c8b47e5 100644
 --- a/xcode/AeroSpace.xcodeproj/project.pbxproj
 +++ b/xcode/AeroSpace.xcodeproj/project.pbxproj
 @@ -236,7 +236,7 @@
@@ -1037,11 +1037,11 @@ index 35b6e079..8c8b47e5 100644
  				SDKROOT = macosx;
  				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
  				SWIFT_VERSION = 6.2;
+
 diff --git a/xcode/project.yml b/xcode/project.yml
-index ce4fb800..60f9c63f 100644
 --- a/xcode/project.yml
 +++ b/xcode/project.yml
-@@ -36,11 +36,11 @@ targets:
+@@ -36,11 +36,11 @@
          CODE_SIGN_IDENTITY: ${XCODEGEN_AEROSPACE_CODE_SIGN_IDENTITY}
        configs:
          Debug:
