@@ -1,10 +1,9 @@
 # Summary: Implements a Hyprland-style dwindle insertion strategy based on the most recently used tiled window.
 
 diff --git a/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift b/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift
-index dd56aa09..9f77414a 100644
 --- a/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift
 +++ b/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift
-@@ -37,9 +37,12 @@ func moveWindowToWorkspace(_ window: Window, _ targetWorkspace: Workspace, _ io:
+@@ -37,9 +37,12 @@
                  .succ(io.err("Window '\(window.windowId)' already belongs to workspace '\(targetWorkspace.name)'. Tip: use --fail-if-noop to exit with non-zero code"))
          }
      }
@@ -21,11 +20,11 @@ index dd56aa09..9f77414a 100644
 +    }
      return .from(bool: focusFollowsWindow ? window.focusWindow() : true)
  }
+
 diff --git a/Sources/AppBundle/tree/MacWindow.swift b/Sources/AppBundle/tree/MacWindow.swift
-index 9a1912c9..d3bb9890 100644
 --- a/Sources/AppBundle/tree/MacWindow.swift
 +++ b/Sources/AppBundle/tree/MacWindow.swift
-@@ -199,9 +199,17 @@ final class MacWindow: Window {
+@@ -202,9 +202,17 @@
  extension Window {
      @MainActor
      func relayoutWindow(on workspace: Workspace, _ cm: CancellationMode, forceTile: Bool = false) async throws {
@@ -46,7 +45,7 @@ index 9a1912c9..d3bb9890 100644
          bind(to: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
      }
  }
-@@ -221,8 +229,34 @@ private func unbindAndGetBindingDataForNewWindow(_ windowId: UInt32, _ macApp: M
+@@ -224,8 +232,34 @@
  @MainActor
  private func unbindAndGetBindingDataForNewTilingWindow(_ workspace: Workspace, window: Window?) -> BindingData {
      window?.unbindFromParent() // It's important to unbind to get correct data from below
@@ -82,8 +81,8 @@ index 9a1912c9..d3bb9890 100644
          return BindingData(
              parent: tilingParent,
              adaptiveWeight: WEIGHT_AUTO,
+
 diff --git a/Sources/AppBundle/tree/normalizeContainers.swift b/Sources/AppBundle/tree/normalizeContainers.swift
-index 931b028f..20b6fdac 100644
 --- a/Sources/AppBundle/tree/normalizeContainers.swift
 +++ b/Sources/AppBundle/tree/normalizeContainers.swift
 @@ -1,3 +1,5 @@
@@ -92,7 +91,7 @@ index 931b028f..20b6fdac 100644
  extension Workspace {
      @MainActor func normalizeContainers() {
          rootTilingContainer.unbindEmptyAndAutoFlatten() // Beware! rootTilingContainer may change after this line of code
-@@ -24,8 +26,18 @@ extension TilingContainer {
+@@ -24,8 +26,18 @@
              for child in children {
                  (child as? TilingContainer)?.unbindEmptyAndAutoFlatten()
              }
@@ -113,9 +112,9 @@ index 931b028f..20b6fdac 100644
              }
          }
      }
+
 diff --git a/Sources/AppBundleTests/tree/DwindleBugTest.swift b/Sources/AppBundleTests/tree/DwindleBugTest.swift
 new file mode 100644
-index 00000000..311916f8
 --- /dev/null
 +++ b/Sources/AppBundleTests/tree/DwindleBugTest.swift
 @@ -0,0 +1,68 @@
@@ -187,9 +186,9 @@ index 00000000..311916f8
 +        XCTAssertEqual(workspace.rootTilingContainer.orientation, .h, "First split should ALWAYS be horizontal")
 +    }
 +}
+
 diff --git a/Sources/AppBundleTests/tree/DwindleLayoutTest.swift b/Sources/AppBundleTests/tree/DwindleLayoutTest.swift
 new file mode 100644
-index 00000000..f3330ecd
 --- /dev/null
 +++ b/Sources/AppBundleTests/tree/DwindleLayoutTest.swift
 @@ -0,0 +1,197 @@
@@ -341,10 +340,10 @@ index 00000000..f3330ecd
 +        try await w2.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +        w2.markAsMostRecentChild()
 +
-+        let floating = TestWindow.new(id: 99, parent: workspace)
++        let floating = TestWindow.new(id: 99, parent: workspace.floatingWindowsContainer)
 +        floating.markAsMostRecentChild()
 +
-+        let w3 = TestWindow.new(id: 3, parent: workspace)
++        let w3 = TestWindow.new(id: 3, parent: macosPopupWindowsContainer)
 +        w3.markAsMostRecentChild()
 +        try await w3.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
 +

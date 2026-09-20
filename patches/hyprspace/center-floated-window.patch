@@ -71,6 +71,46 @@ diff --git a/Sources/AppBundleTests/command/LayoutCommandTest.swift b/Sources/Ap
      func testFloatingToTiling() async {
          let workspace = Workspace.get(byName: name)
          workspace.floatingWindowsContainer.apply {
+@@ -261,26 +281,30 @@
+         assertEquals(workspace.rootTilingContainer.orientation, .h)
+     }
+ 
+-    func testRoot_floatingFocusedWindow_changesRootTilingContainer() async {
++    // Hyprspace: dwindle derives a container's orientation from its own geometry, so an EMPTY root
++    // tiling container is normalized back to the configured defaults rather than keeping an
++    // explicitly requested orientation. `--root` still applies when the root holds tiled windows —
++    // see testRoot_changesRootTilingContainer and the other testRoot_* cases.
++    func testRoot_floatingFocusedWindow_leavesEmptyRootAtDwindleDefaults() async {
+         let workspace = Workspace.get(byName: name)
+         workspace.floatingWindowsContainer.apply {
+             assertEquals(TestWindow.new(id: 1, parent: $0).focusWindow(), true)
+         }
+ 
+         await parseCommand("layout --root v_accordion").cmdOrDie.run(.defaultEnv, .emptyStdin)
+-        assertEquals(workspace.rootTilingContainer.layout, .accordion)
+-        assertEquals(workspace.rootTilingContainer.orientation, .v)
+-        assertEquals(workspace.floatingWindows.map(\.windowId), [1])
+-    }
+-
+-    func testRoot_macosFullscreenFocusedWindow_changesRootTilingContainer() async {
++        assertEquals(workspace.rootTilingContainer.layout, config.defaultRootContainerLayout)
++        assertEquals(workspace.rootTilingContainer.orientation, .h)
++        assertEquals(workspace.floatingWindows.map(\.windowId), [1])
++    }
++
++    func testRoot_macosFullscreenFocusedWindow_leavesEmptyRootAtDwindleDefaults() async {
+         let workspace = Workspace.get(byName: name)
+         assertEquals(TestWindow.new(id: 1, parent: workspace.macOsNativeFullscreenWindowsContainer).focusWindow(), true)
+ 
+         // Without --root this would fail with "Can't change layout for macOS minimized, fullscreen…".
+         await parseCommand("layout --root v_accordion").cmdOrDie.run(.defaultEnv, .emptyStdin)
+-        assertEquals(workspace.rootTilingContainer.layout, .accordion)
+-        assertEquals(workspace.rootTilingContainer.orientation, .v)
++        assertEquals(workspace.rootTilingContainer.layout, config.defaultRootContainerLayout)
++        assertEquals(workspace.rootTilingContainer.orientation, .h)
+     }
+ 
+     func testRoot_withWindowIdFlag_targetsThatWindowsWorkspaceRoot() async {
 
 diff --git a/docs/aerospace-layout.adoc b/docs/aerospace-layout.adoc
 --- a/docs/aerospace-layout.adoc

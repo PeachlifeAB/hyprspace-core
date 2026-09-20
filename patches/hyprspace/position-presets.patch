@@ -92,7 +92,7 @@ diff --git a/Sources/AppBundleTests/command/PositionCommandTest.swift b/Sources/
 +    }
 +
 +    func testParsePositionInvalid() {
-+        testParseCommandFail("position invalid", msg: "Invalid placement 'invalid'. Expected 'center', 'topLeftCorner', 'topRightCorner', or 'bottomPanel'", exitCode: 2)
++        testParseCommandFail("position invalid", msg: "ERROR: Invalid placement 'invalid'. Expected 'center', 'topLeftCorner', 'topRightCorner', or 'bottomPanel'", exitCode: 2)
 +    }
 +
 +    @MainActor
