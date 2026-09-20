@@ -361,7 +361,7 @@ diff --git a/install-from-sources.sh b/install-from-sources.sh
 diff --git a/script/build-brew-cask.sh b/script/build-brew-cask.sh
 --- a/script/build-brew-cask.sh
 +++ b/script/build-brew-cask.sh
-@@ -2,77 +2,126 @@
+@@ -2,77 +2,144 @@
  cd "$(dirname "$0")/.."
  source ./script/setup.sh
  
@@ -474,12 +474,29 @@ diff --git a/script/build-brew-cask.sh b/script/build-brew-cask.sh
 +  homepage "https://hyprspace.net/"
  
 -  depends_on macos: :ventura # macOS 13
-+  depends_on formula: "gum"
-+  depends_on macos: :sequoia
- 
+-
 -  postflight do
 -    system "xattr -d com.apple.quarantine #{staged_path}/$zip_root_dir/bin/aerospace"
 -    system "xattr -d com.apple.quarantine #{appdir}/AeroSpace.app"
++  # hyprspace-releases carries only this product, so its single latest
++  # release is the right answer -- unlike the tap's formulae, which share
++  # one repository under <product>- tag prefixes.
++  livecheck do
++    url :url
++    strategy :github_latest
+   end
+ 
+-  app "$zip_root_dir/AeroSpace.app"
+-  binary "$zip_root_dir/bin/aerospace"
++  depends_on formula: "gum"
++  depends_on macos: :sequoia
+ 
+-  binary "$zip_root_dir/shell-completion/zsh/_aerospace",
+-      target: "#{HOMEBREW_PREFIX}/share/zsh/site-functions/_aerospace"
+-  binary "$zip_root_dir/shell-completion/bash/aerospace",
+-      target: "#{HOMEBREW_PREFIX}/etc/bash_completion.d/aerospace"
+-  binary "$zip_root_dir/shell-completion/fish/aerospace.fish",
+-      target: "#{HOMEBREW_PREFIX}/share/fish/vendor_completions.d/aerospace.fish"
 +  app "$zip_root_dir/Hyprspace.app"
 +  binary "$zip_root_dir/bin/hyprspace"
 +  binary "$zip_root_dir/shell-completion/zsh/_hyprspace",
@@ -505,17 +522,18 @@ diff --git a/script/build-brew-cask.sh b/script/build-brew-cask.sh
 +           ".config/hyprspace/docs/default-config.toml",
 +           source_base: "staged_path", target_base: "home"
 +    end
-   end
- 
--  app "$zip_root_dir/AeroSpace.app"
--  binary "$zip_root_dir/bin/aerospace"
--
--  binary "$zip_root_dir/shell-completion/zsh/_aerospace",
--      target: "#{HOMEBREW_PREFIX}/share/zsh/site-functions/_aerospace"
--  binary "$zip_root_dir/shell-completion/bash/aerospace",
--      target: "#{HOMEBREW_PREFIX}/etc/bash_completion.d/aerospace"
--  binary "$zip_root_dir/shell-completion/fish/aerospace.fish",
--      target: "#{HOMEBREW_PREFIX}/share/fish/vendor_completions.d/aerospace.fish"
++  end
++
++  # Only what this cask creates outside its own artifacts: the docs the
++  # flight block copies, and the app's preferences. NOT ~/.config/hyprspace
++  # itself -- that holds the user's own config.toml, and is often a git
++  # repository. zap runs only on \`brew uninstall --zap\`.
++  zap trash: [
++    "~/.config/hyprspace/docs",
++    "~/Library/Preferences/peachlife.hyprspace.plist",
++    "~/Library/Saved Application State/peachlife.hyprspace.savedState",
++  ]
++
 +  caveats do
 +    <<~EOS
 +      Run 'hyprspace init' to start the setup wizard.
