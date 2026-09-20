@@ -361,7 +361,7 @@ diff --git a/install-from-sources.sh b/install-from-sources.sh
 diff --git a/script/build-brew-cask.sh b/script/build-brew-cask.sh
 --- a/script/build-brew-cask.sh
 +++ b/script/build-brew-cask.sh
-@@ -2,77 +2,127 @@
+@@ -2,77 +2,126 @@
  cd "$(dirname "$0")/.."
  source ./script/setup.sh
  
@@ -464,13 +464,11 @@ diff --git a/script/build-brew-cask.sh b/script/build-brew-cask.sh
    version $cask_version
    sha256 "$sha"
  
--  url "$zip_uri"
+   url "$zip_uri"
 -  name "AeroSpace"
 -  desc "AeroSpace is an i3-like tiling window manager for macOS"
 -  homepage "https://github.com/nikitabobko/AeroSpace"
 -  $conflicts_with_casks
-+  url "$zip_uri",
-+      verified: "github.com/PeachlifeAB/hyprspace-releases/"
 +  name "Hyprspace"
 +  desc "Tiling window manager based on AeroSpace"
 +  homepage "https://hyprspace.net/"
