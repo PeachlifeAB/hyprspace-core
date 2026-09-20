@@ -142,8 +142,12 @@ while IFS= read -r patch_file; do
     fi
 
     # --- Genuine conflict: neither zero-fuzz nor 3-way could finish it. ---
-    conflict_files="$(grep -rl '^<<<<<<< ' . 2>/dev/null | sed 's|^\./|  AeroSpace/|' | sort)"
-    rej_files="$(find . -name '*.rej' 2>/dev/null | sed 's|^\./|  AeroSpace/|' | sort)"
+    # These collectors run while reporting a failure, so they must never be the
+    # thing that aborts the report. `find` descending into .git can exit
+    # non-zero, which under `set -e` killed the script before the banner below
+    # ever printed — the reason upstream-bump breakage went unnoticed for weeks.
+    conflict_files="$(grep -rl '^<<<<<<< ' . 2>/dev/null | sed 's|^\./|  AeroSpace/|' | sort || true)"
+    rej_files="$(find . -name '*.rej' 2>/dev/null | sed 's|^\./|  AeroSpace/|' | sort || true)"
     three_way_msg="$(sed 's/^/    /' "$THREE_WAY_ERR" 2>/dev/null || true)"
     base_version="$(cat "$ROOT_DIR/aerospace_version.txt" 2>/dev/null || echo '?')"
     base_rev="$(cat "$ROOT_DIR/revision.txt" 2>/dev/null || echo '?')"
