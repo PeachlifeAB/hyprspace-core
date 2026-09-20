@@ -361,7 +361,7 @@ diff --git a/install-from-sources.sh b/install-from-sources.sh
 diff --git a/script/build-brew-cask.sh b/script/build-brew-cask.sh
 --- a/script/build-brew-cask.sh
 +++ b/script/build-brew-cask.sh
-@@ -2,77 +2,115 @@
+@@ -2,77 +2,127 @@
  cd "$(dirname "$0")/.."
  source ./script/setup.sh
  
@@ -476,9 +476,12 @@ diff --git a/script/build-brew-cask.sh b/script/build-brew-cask.sh
 +  homepage "https://hyprspace.net/"
  
 -  depends_on macos: :ventura # macOS 13
-+  depends_on macos: :sequoia
 +  depends_on formula: "gum"
-+
++  depends_on macos: :sequoia
+ 
+-  postflight do
+-    system "xattr -d com.apple.quarantine #{staged_path}/$zip_root_dir/bin/aerospace"
+-    system "xattr -d com.apple.quarantine #{appdir}/AeroSpace.app"
 +  app "$zip_root_dir/Hyprspace.app"
 +  binary "$zip_root_dir/bin/hyprspace"
 +  binary "$zip_root_dir/shell-completion/zsh/_hyprspace",
@@ -487,13 +490,23 @@ diff --git a/script/build-brew-cask.sh b/script/build-brew-cask.sh
 +         target: "#{HOMEBREW_PREFIX}/etc/bash_completion.d/hyprspace"
 +  binary "$zip_root_dir/shell-completion/fish/hyprspace.fish",
 +         target: "#{HOMEBREW_PREFIX}/share/fish/vendor_completions.d/hyprspace.fish"
- 
-   postflight do
--    system "xattr -d com.apple.quarantine #{staged_path}/$zip_root_dir/bin/aerospace"
--    system "xattr -d com.apple.quarantine #{appdir}/AeroSpace.app"
-+    system "/bin/sh", "-c", "xattr -dr com.apple.quarantine '#{appdir}/Hyprspace.app' 2>/dev/null || true"
-+    system "/bin/sh", "-c", "xattr -dr com.apple.quarantine '#{staged_path}/$zip_root_dir/bin/hyprspace' '#{staged_path}/$zip_root_dir/libexec' 2>/dev/null || true"
-+    system "/bin/sh", "-c", "mkdir -p ~/.config/hyprspace/docs && cp '#{staged_path}/$zip_root_dir/artifacts/configs/docs/README.md' '#{staged_path}/$zip_root_dir/artifacts/configs/docs/ACKNOWLEDGMENTS.md' ~/.config/hyprspace/docs/ && cp '#{staged_path}/$zip_root_dir/AeroSpace/docs/config-examples/config.default.toml' ~/.config/hyprspace/docs/default-config.toml 2>/dev/null || true"
++
++  postflight_steps do
++    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/Hyprspace.app"], must_succeed: false
++    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{staged_path}}/$zip_root_dir/bin/hyprspace", "{{staged_path}}/$zip_root_dir/libexec"], must_succeed: false
++
++    mkdir_p ".config/hyprspace/docs", base: "home"
++    copy "$zip_root_dir/artifacts/configs/docs/README.md",
++         ".config/hyprspace/docs/README.md",
++         source_base: "staged_path", target_base: "home"
++    copy "$zip_root_dir/artifacts/configs/docs/ACKNOWLEDGMENTS.md",
++         ".config/hyprspace/docs/ACKNOWLEDGMENTS.md",
++         source_base: "staged_path", target_base: "home"
++    if_path_exists "$zip_root_dir/AeroSpace/docs/config-examples/config.default.toml", base: "staged_path" do
++      copy "$zip_root_dir/AeroSpace/docs/config-examples/config.default.toml",
++           ".config/hyprspace/docs/default-config.toml",
++           source_base: "staged_path", target_base: "home"
++    end
    end
  
 -  app "$zip_root_dir/AeroSpace.app"
