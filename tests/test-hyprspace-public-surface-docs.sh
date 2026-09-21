@@ -40,7 +40,10 @@ test -s "$root_dir/AeroSpace/.release/release-notes.md"
 
 echo "[step] checking generated cask public homepage assertions"
 grep -n 'homepage "https://hyprspace.net/"' "$generated_cask"
-grep -n 'verified: "github.com/PeachlifeAB/hyprspace-releases/"' "$generated_cask"
+if grep -n 'verified:' "$generated_cask"; then
+    echo "[error] generated cask still uses the deprecated verified: url spec"
+    exit 1
+fi
 if grep -n 'homepage "https://github.com/PeachlifeAB/hyprspace-core"' "$generated_cask"; then
     echo "[error] generated cask still points at private source repo"
     exit 1
