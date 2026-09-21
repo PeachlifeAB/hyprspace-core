@@ -65,10 +65,10 @@
       "contains": "homepage \"https://hyprspace.net/\""
     },
     {
-      "id": "tap-cask-verified-releases-repo",
+      "id": "tap-cask-no-verified-spec",
       "local_path": "AeroSpace/.release/hyprspace.rb",
       "public_url": "https://raw.githubusercontent.com/{tap_repo}/main/Casks/hyprspace.rb",
-      "contains": "verified: \"github.com/PeachlifeAB/hyprspace-releases/\""
+      "not_contains": "verified:"
     },
     {
       "id": "tap-cask-no-private-homepage",
