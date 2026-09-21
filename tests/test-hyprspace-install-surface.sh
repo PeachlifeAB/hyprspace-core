@@ -46,7 +46,7 @@ grep -q 'artifacts/docs/hyprspace-releases-README.md' script/internal/build-rele
 grep -q 'artifacts/docs/bundled-legal-README.md' script/internal/build-release.sh
 grep -q '\$root_dir/LICENSE' script/internal/build-release.sh
 grep -q 'homepage "https://hyprspace.net/"' script/build-brew-cask.sh
-grep -q 'url "\$zip_uri",' script/build-brew-cask.sh
+grep -q 'url "\$zip_uri"' script/build-brew-cask.sh
 ! grep -q 'verified:' script/build-brew-cask.sh
 grep -q 'depends_on macos: :sequoia' script/build-brew-cask.sh
 grep -q 'depends_on formula: "gum"' script/build-brew-cask.sh
