@@ -5,9 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> Current `Hyprspace` patches are based on AeroSpace v0.21.1-Beta
+> Current `Hyprspace` patches are based on AeroSpace v0.21.3-Beta
 
-## [Unreleased]
+## [0.4.0] - 2026-09-20
 
 ### Added
 
@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Rebased Hyprspace patches onto AeroSpace v0.21.3-Beta.
 - `layout floating` now centers the window on its monitor at 62.5% of the monitor's visible area on each axis, instead of leaving it at whatever frame the tiling layout happened to give it. A window popped out of the tree now lands somewhere usable regardless of where it was tiled. This replaces the previous behavior of restoring the window's last floating size.
 
 ## [0.3.0] - 2026-07-06
