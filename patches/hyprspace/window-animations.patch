@@ -77,7 +77,7 @@ diff --git a/Sources/AppBundle/layout/WindowAnimator.swift b/Sources/AppBundle/l
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundle/layout/WindowAnimator.swift
-@@ -0,0 +1,354 @@
+@@ -0,0 +1,439 @@
 +import AppKit
 +import Common
 +import QuartzCore
@@ -88,9 +88,12 @@ new file mode 100644
 +// spring, so the window curves to its new tile instead of restarting.
 +//
 +// Two styles:
-+// - `fancy` morphs the whole frame: position and size ride a soft spring every frame, so neighbouring windows'
-+//   shared edges move together. Each step is a size and a position write. AXEnhancedUserInterface is turned off
-+//   once per app for the whole animation instead of being checked around every write.
++// - `fancy` morphs the whole frame on a soft spring. A window's position and size can only be set by two separate
++//   AX writes, and an app may draw in between: a window whose left edge moves while its width changes makes its
++//   right edge, which should stay put, jump back and forth every frame. So no frame changes both. A window that
++//   only moves or only resizes rides one spring; one that does both shrinks in place, slides, then grows in place
++//   (`fancyPhases`), each phase a single kind of write. AXEnhancedUserInterface is turned off once per app for the
++//   whole animation instead of being checked around every write.
 +// - `fast` only slides. Resizing makes an app lay its content out again, which browsers, terminals and Electron
 +//   apps can't do at display rate, so the window shrinks to the smaller of its old and new size up front, moves
 +//   with one position write per frame on a stiffer spring, and grows into its tile with the final write.
@@ -193,10 +196,13 @@ new file mode 100644
 +        /// Held so the app's animation state can be released even once the window is gone.
 +        let window: Window
 +        var animation: FrameAnimation
-+        /// The size the window keeps while it slides, or nil when its size is animated along with its position.
++        /// The size the window keeps while it slides (`fast`), or nil when its size is animated too (`fancy`).
 +        var slideSize: CGSize?
-+        /// The size the last step asked for, so a step that keeps it only moves the window.
-+        var writtenSize: CGSize?
++        /// The `fancy` phases still to come after the current one, and what the current one writes.
++        var phases: [CGRect] = []
++        var writes: PhaseWrites = .both
++        /// The spring the phases of a multi-phase move ride: each a share of the duration.
++        var phaseSpring: Spring?
 +        /// The write the window's app has yet to perform, and when it was sent.
 +        var inFlight: (write: AnimationWrite, sentAt: CFTimeInterval)?
 +        /// When the spring last advanced, so each window keeps its own clock while it waits for its app.
@@ -248,6 +254,21 @@ new file mode 100644
 +            return
 +        }
 +        syncSpring()
++        if var entry = entries[id], entry.slideSize == nil {
++            guard (entry.phases.last ?? entry.animation.target) != target else { return }
++            let current = entry.animation.frame
++            let phases = fancyPhases(from: current, to: target)
++            if entry.phases.isEmpty, phases.count == 1 {
++                entry.animation.retarget(target) // Keep the window's speed: it curves to its new tile
++            } else {
++                entry.animation = FrameAnimation(from: current, to: phases[0])
++                entry.phaseSpring = phaseSpring(phases.count)
++            }
++            entry.phases = Array(phases.dropFirst())
++            entry.writes = PhaseWrites(from: current, to: phases[0])
++            entries[id] = entry
++            return
++        }
 +        if let entry = entries[id] {
 +            entries[id]?.animation.retarget(target)
 +            if let slideSize = entry.slideSize {
@@ -325,15 +346,28 @@ new file mode 100644
 +        guard let window = Window.get(byId: id) else { return }
 +        var entry = Entry(window: window, animation: FrameAnimation(from: from, to: target))
 +        window.animationStarted()
-+        if config.animations.style == .fast {
-+            let slideSize = from.size.shrunk(to: target.size)
-+            entry.slideSize = slideSize
-+            if slideSize != from.size {
-+                entry.inFlight = send(window, from.origin, slideSize) // The slide starts once the window has shrunk
-+            }
++        switch config.animations.style {
++            case .fast:
++                let slideSize = from.size.shrunk(to: target.size)
++                entry.slideSize = slideSize
++                entry.writes = .position
++                if slideSize != from.size {
++                    entry.inFlight = send(window, from.origin, slideSize) // The slide starts once the window has shrunk
++                }
++            case .fancy:
++                let phases = fancyPhases(from: from, to: target)
++                entry.animation = FrameAnimation(from: from, to: phases[0])
++                entry.phases = Array(phases.dropFirst())
++                entry.writes = PhaseWrites(from: from, to: phases[0])
++                entry.phaseSpring = phaseSpring(phases.count)
 +        }
 +        entries[id] = entry
 +        run()
++    }
++
++    /// A move split into `count` phases gives each a share of the duration, so the whole stays close to it.
++    private func phaseSpring(_ count: Int) -> Spring? {
++        count > 1 ? Spring(response: spring.response * max(0.4, 1.2 / Double(count)), damping: 0.9) : nil
 +    }
 +
 +    private func removeEntry(_ id: UInt32) {
@@ -367,7 +401,15 @@ new file mode 100644
 +        step(now: link.timestamp)
 +    }
 +
-+    private func send(_ window: Window, _ topLeft: CGPoint, _ size: CGSize?) -> (AnimationWrite, CFTimeInterval) {
++    private func send(_ window: Window, _ frame: CGRect, _ writes: PhaseWrites) -> (AnimationWrite, CFTimeInterval) {
++        switch writes {
++            case .position: send(window, frame.origin, nil)
++            case .size: send(window, nil, frame.size)
++            case .both: send(window, frame.origin, frame.size)
++        }
++    }
++
++    private func send(_ window: Window, _ topLeft: CGPoint?, _ size: CGSize?) -> (AnimationWrite, CFTimeInterval) {
 +        let write = AnimationWrite()
 +        window.setAxFrameForAnimation(topLeft, size, write)
 +        return (write, CACurrentMediaTime())
@@ -385,24 +427,65 @@ new file mode 100644
 +            // A window that waited resumes where it was instead of leaping ahead.
 +            let dt = min(entry.lastAdvance.map { now - $0 } ?? 1.0 / 60, 1.0 / 30)
 +            entry.lastAdvance = now
-+            let done = entry.animation.step(spring, dt: dt, timeout: timeout, settle: settle)
++            let lastPhase = entry.phases.isEmpty
++            // The phases of a split move each get a share of the duration and hand over as soon as they are
++            // close, so the whole move takes about as long as a single-phase one.
++            let done = entry.animation.step(
++                entry.phaseSpring ?? spring,
++                dt: dt,
++                timeout: timeout,
++                settle: entry.phaseSpring == nil ? settle : .early,
++            )
 +            let frame = entry.animation.frame
-+            if done {
++            if done && lastPhase {
 +                quietUntil[id] = now + 0.25
 +                window.setAxFrame(frame.origin, frame.size)
 +                removeEntry(id) // After the final write, which the app's thread then performs first
-+            } else if entry.slideSize != nil {
-+                entry.inFlight = send(window, frame.origin, nil)
-+                entries[id] = entry
-+            } else {
-+                entry.inFlight = send(window, frame.origin, entry.writtenSize == frame.size ? nil : frame.size)
-+                entry.writtenSize = frame.size
-+                entries[id] = entry
++                continue
 +            }
++            entry.inFlight = send(window, frame, entry.writes)
++            if done {
++                let next = entry.phases.removeFirst()
++                entry.writes = PhaseWrites(from: frame, to: next)
++                entry.animation = FrameAnimation(from: frame, to: next)
++            }
++            entries[id] = entry
 +        }
 +        quietUntil = quietUntil.filter { $0.value > now }
 +        if entries.isEmpty { stop() }
 +    }
++}
++
++/// What a phase of an animation changes, and so which AX writes each of its frames needs.
++enum PhaseWrites: Equatable {
++    case position, size, both
++
++    init(from: CGRect, to: CGRect) {
++        if from.origin.isClose(to: to.origin) {
++            self = .size
++        } else if from.size.isClose(to: to.size) {
++            self = .position
++        } else {
++            self = .both
++        }
++    }
++}
++
++/// The phases of a `fancy` move from `from` to `to`, as the frame each one ends on. A window that only moves, or
++/// only resizes in place, takes one phase. One that does both shrinks in place to the smaller of its two sizes,
++/// slides, then grows in place, so no frame needs both a position and a size write.
++func fancyPhases(from: CGRect, to: CGRect) -> [CGRect] {
++    if from.origin.isClose(to: to.origin) || from.size.isClose(to: to.size) { return [to] }
++    let small = from.size.shrunk(to: to.size)
++    var phases: [CGRect] = []
++    if !small.isClose(to: from.size) { phases.append(CGRect(origin: from.origin, size: small)) }
++    phases.append(CGRect(origin: to.origin, size: small))
++    if !small.isClose(to: to.size) { phases.append(to) }
++    return phases
++}
++
++extension CGPoint {
++    fileprivate func isClose(to other: CGPoint) -> Bool { abs(x - other.x) < 1 && abs(y - other.y) < 1 }
 +}
 +
 +/// One animation write, marked by the app's AX thread once it has been performed.
@@ -423,6 +506,8 @@ new file mode 100644
 +    fileprivate func shrunk(to other: CGSize) -> CGSize {
 +        CGSize(width: min(width, other.width), height: min(height, other.height))
 +    }
++
++    fileprivate func isClose(to other: CGSize) -> Bool { abs(width - other.width) < 1 && abs(height - other.height) < 1 }
 +}
 +
 +extension CGRect {
@@ -525,7 +610,7 @@ diff --git a/Sources/AppBundle/tree/MacWindow.swift b/Sources/AppBundle/tree/Mac
 +    override func animationStarted() { macApp.animationStarted() }
 +    override func animationEnded() { macApp.animationEnded() }
 +
-+    override func setAxFrameForAnimation(_ topLeft: CGPoint, _ size: CGSize?, _ write: AnimationWrite) {
++    override func setAxFrameForAnimation(_ topLeft: CGPoint?, _ size: CGSize?, _ write: AnimationWrite) {
 +        macApp.setAxFrameForAnimation(windowId, topLeft, size, write)
      }
  
@@ -583,7 +668,7 @@ diff --git a/Sources/AppBundleTests/layout/WindowAnimatorTest.swift b/Sources/Ap
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundleTests/layout/WindowAnimatorTest.swift
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,88 @@
 +@testable import AppBundle
 +import XCTest
 +
@@ -628,6 +713,44 @@ new file mode 100644
 +        assertTrue(steps(.early) < steps(.exact))
 +    }
 +
++    func testFancyPhasesKeepSingleKindMovesInOnePhase() {
++        let from = CGRect(x: 0, y: 0, width: 500, height: 500)
++        let moved = CGRect(x: 600, y: 0, width: 500, height: 500)
++        let resized = CGRect(x: 0, y: 0, width: 800, height: 300)
++        assertEquals(fancyPhases(from: from, to: moved), [moved])
++        assertEquals(fancyPhases(from: from, to: resized), [resized])
++    }
++
++    func testFancyPhasesSplitMoveAndResize() {
++        // Growing leftwards (right edge fixed): slide at the old size, then grow in place.
++        let right = CGRect(x: 1000, y: 0, width: 1000, height: 800)
++        let wide = CGRect(x: 0, y: 0, width: 2000, height: 800)
++        assertEquals(fancyPhases(from: right, to: wide), [CGRect(x: 0, y: 0, width: 1000, height: 800), wide])
++        // Shrinking while moving: shrink in place, then slide.
++        assertEquals(
++            fancyPhases(from: wide, to: right),
++            [CGRect(x: 0, y: 0, width: 1000, height: 800), right],
++        )
++        // Wider but shorter, and moved: shrink the height in place, slide, then widen in place.
++        let from = CGRect(x: 0, y: 0, width: 500, height: 800)
++        let to = CGRect(x: 600, y: 100, width: 900, height: 400)
++        assertEquals(fancyPhases(from: from, to: to), [
++            CGRect(x: 0, y: 0, width: 500, height: 400),
++            CGRect(x: 600, y: 100, width: 500, height: 400),
++            to,
++        ])
++    }
++
++    func testEachFancyPhaseNeedsOneKindOfWrite() {
++        let from = CGRect(x: 0, y: 0, width: 500, height: 800)
++        let to = CGRect(x: 600, y: 100, width: 900, height: 400)
++        var start = from
++        for phase in fancyPhases(from: from, to: to) {
++            assertNotEquals(PhaseWrites(from: start, to: phase), .both)
++            start = phase
++        }
++    }
++
 +    func testAnimationGivesUpAfterTimeout() {
 +        var animation = FrameAnimation(from: .zero, to: CGRect(x: 1000, y: 0, width: 0, height: 0))
 +        assertTrue(animation.step(Spring(response: 1, damping: 0.9), dt: 1.0 / 30, timeout: 0.01))
@@ -664,7 +787,7 @@ diff --git a/Sources/AppBundle/tree/Window.swift b/Sources/AppBundle/tree/Window
 +    func animationStarted() {}
 +    func animationEnded() {}
 +    /// One frame of an animation, marking `write` once the app has performed it.
-+    func setAxFrameForAnimation(_ topLeft: CGPoint, _ size: CGSize?, _ write: AnimationWrite) {
++    func setAxFrameForAnimation(_ topLeft: CGPoint?, _ size: CGSize?, _ write: AnimationWrite) {
 +        setAxFrame(topLeft, size)
 +        write.markLanded()
 +    }
@@ -685,7 +808,7 @@ diff --git a/Sources/AppBundle/tree/MacApp.swift b/Sources/AppBundle/tree/MacApp
      @MainActor private static var focusJob: RunLoopJob? = nil
  
      /*conforms*/ var name: String? { nsApp.localizedName }
-@@ -156,6 +159,54 @@
+@@ -156,6 +159,56 @@
          }
      }
  
@@ -712,12 +835,12 @@ diff --git a/Sources/AppBundle/tree/MacApp.swift b/Sources/AppBundle/tree/MacApp
 +    }
 +
 +    /// One frame of an animation, marking `write` once performed. AXEnhancedUserInterface is already off for the
-+    /// animation (`animationStarted`), and an in-between frame needs no edge-of-screen size fix-up: a move is one
-+    /// position write and a morph two writes. The final full write still goes through `setAxFrame`.
-+    func setAxFrameForAnimation(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?, _ write: AnimationWrite) {
++    /// animation (`animationStarted`), and an in-between frame needs no edge-of-screen size fix-up: a move or a
++    /// resize is one write. The final full write still goes through `setAxFrame`.
++    func setAxFrameForAnimation(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?, _ write: AnimationWrite) {
 +        setFrameJobs.removeValue(forKey: windowId)?.cancel()
 +        setFrameJobs[windowId] = withWindowAsync(windowId, .cancellable) { window, job in
-+            if let size {
++            if let size, let topLeft {
 +                // Shrink before moving and move before growing, so the window never pokes past where it is
 +                // going and gets clamped by the screen edge.
 +                let growing = (window.get(Ax.sizeAttr).map { size.width > $0.width || size.height > $0.height }) ?? false
@@ -730,7 +853,9 @@ diff --git a/Sources/AppBundle/tree/MacApp.swift b/Sources/AppBundle/tree/MacApp
 +                    try job.checkCancellation()
 +                    window.set(Ax.topLeftCornerAttr, topLeft)
 +                }
-+            } else {
++            } else if let size {
++                window.set(Ax.sizeAttr, size)
++            } else if let topLeft {
 +                window.set(Ax.topLeftCornerAttr, topLeft)
 +            }
 +            write.markLanded()
@@ -740,7 +865,7 @@ diff --git a/Sources/AppBundle/tree/MacApp.swift b/Sources/AppBundle/tree/MacApp
      func setAxFrameForTermination(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?) {
          setFrameJobs.removeValue(forKey: windowId)?.cancel()
          let semaphore = DispatchSemaphore(value: 0)
-@@ -401,6 +452,11 @@
+@@ -401,6 +454,11 @@
      }
  }
  
