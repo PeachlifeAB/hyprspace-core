@@ -78,6 +78,9 @@ The active stack is the ordered list in `patches/series`. Each patch should prov
 - `hyprspace/dwindle-move.patch`
   **dwindle move** — Hyprland-style dwindle move: `move <dir>` reinserts the window by splitting the window past its edge, keeping the tree binary.
 
+- `hyprspace/window-animations.patch`
+  **window animations** — Spring-based window animations: tiled windows glide to new frames (configurable via [animations], off with Reduce Motion).
+
 ## Patch files not currently in `patches/series`
 
 - `hyprspace/build-release-restore-generated-files.patch`
@@ -85,9 +88,6 @@ The active stack is the ordered list in `patches/series`. Each patch should prov
 
 - `hyprspace/local-install-execution.patch`
   **local install execution** — Adds local-prefix install support and Hyprspace-named release install targets in install-from-sources.sh.
-
-- `hyprspace/window-animations.patch`
-  **window animations** — Spring-based window animations: tiled windows glide to new frames (configurable via [animations], off with Reduce Motion).
 
 ## Upstream-fix bucket
 

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Window animations: tiled windows glide to their new positions on a spring instead of jumping. By default a window slides and resizes once when it arrives, so heavy apps (browsers, terminals, Electron) keep up; `animate-size = true` resizes on every frame instead. Configure through the `[animations]` table (`enabled`, `duration-ms`, `animate-size`). Off while macOS's Reduce Motion is on.
+
 ### Changed
 
 - `move <direction>` now behaves like Hyprland's dwindle `movewindow`: the window is reinserted by splitting the window just past its edge, taking the half nearest to where it came from, so the tree stays a binary dwindle instead of growing extra columns. At the workspace edge and inside accordion containers it falls back to the previous behavior, so moving to another monitor still works.

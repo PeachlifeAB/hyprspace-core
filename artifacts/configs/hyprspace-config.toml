@@ -32,6 +32,11 @@ exec-on-workspace-change = [
 enabled = true
 modifier = 'alt'
 
+# Tiled windows glide to their new positions instead of jumping. Off while macOS's Reduce Motion is on.
+[animations]
+enabled = true
+duration-ms = 150
+
 [gaps]
 inner.horizontal = 18
 inner.vertical = 18
