@@ -1,0 +1,228 @@
+# Summary: Hyprland-style dwindle move: `move <dir>` reinserts the window by splitting the window past its edge, keeping the tree binary.
+
+diff --git a/Sources/AppBundle/command/impl/MoveCommand.swift b/Sources/AppBundle/command/impl/MoveCommand.swift
+--- a/Sources/AppBundle/command/impl/MoveCommand.swift
++++ b/Sources/AppBundle/command/impl/MoveCommand.swift
+@@ -21,6 +21,7 @@
+         switch currentWindow.windowParentCases {
+             case .unbound: return .fail
+             case .tilingContainer(let parent):
++                if dwindleMove(currentWindow, direction) { return .succ }
+                 guard let indexOfCurrent = currentWindow.ownIndex else { return .fail(io.err(bugPrompt())) }
+                 let indexOfSiblingTarget = indexOfCurrent + direction.focusOffset
+                 if parent.orientation == direction.orientation && parent.children.indices.contains(indexOfSiblingTarget) {
+
+diff --git a/Sources/AppBundle/command/impl/dwindleMove.swift b/Sources/AppBundle/command/impl/dwindleMove.swift
+new file mode 100644
+--- /dev/null
++++ b/Sources/AppBundle/command/impl/dwindleMove.swift
+@@ -0,0 +1,98 @@
++import AppKit
++import Common
++
++/// Hyprland-style dwindle `move`: take the point just past the window's edge in `direction`, pull the window out of
++/// the tree and reinsert it by splitting whichever window covers that point once the window's slot has collapsed.
++/// The split follows the target's aspect ratio and the window takes the half the point falls in, so the tree stays
++/// a binary dwindle instead of growing extra columns the way i3-style `move` does.
++///
++/// Returns `false`, leaving the tree untouched, when the move has no window to split in that direction (workspace
++/// edge, accordion containers, or no layout yet), so the caller can fall back to the regular `move` behavior.
++@MainActor
++func dwindleMove(_ window: Window, _ direction: CardinalDirection) -> Bool {
++    guard let parent = window.parent as? TilingContainer,
++          let workspace = window.nodeWorkspace,
++          let windowRect = window.lastAppliedLayoutVirtualRect,
++          let parentRect = parent.lastAppliedLayoutVirtualRect,
++          window.isInTilesOnlyBranch
++    else { return false }
++
++    let focal = dwindleFocalPoint(of: windowRect, direction)
++    let candidates = workspace.rootTilingContainer.allLeafWindowsRecursive.lazy
++        .filter { $0 != window && $0.isInTilesOnlyBranch }
++        .compactMap { candidate -> (Window, Rect)? in
++            guard let rect = candidate.lastAppliedLayoutVirtualRect else { return nil }
++            let collapsed = candidate.parents.contains(where: { $0 === parent })
++                ? collapse(rect, removing: windowRect, from: parentRect, along: parent.orientation)
++                : rect
++            return (candidate, collapsed)
++        }
++    guard let (target, targetRect) = candidates.first(where: { $0.1.contains(focal) }) else { return false }
++
++    window.unbindFromParent()
++    guard let targetParent = target.parent as? TilingContainer, let targetIndex = target.ownIndex else {
++        window.bind(to: workspace.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
++        return true
++    }
++    switch mouseDropPlacement(
++        targetRect: targetRect,
++        targetIndex: targetIndex,
++        parentOrientation: targetParent.orientation,
++        drop: focal,
++    ) {
++        case .sibling(let index):
++            window.bind(to: targetParent, adaptiveWeight: WEIGHT_AUTO, index: index)
++        case .split(let orientation, let index):
++            let splitContainer = TilingContainer(
++                parent: targetParent,
++                adaptiveWeight: target.getWeight(targetParent.orientation),
++                orientation,
++                .tiles,
++                index: targetIndex,
++            )
++            target.bind(to: splitContainer, adaptiveWeight: WEIGHT_AUTO, index: 0)
++            window.bind(to: splitContainer, adaptiveWeight: WEIGHT_AUTO, index: index)
++    }
++    return true
++}
++
++/// The point one pixel past the middle of the window's edge in `direction`.
++func dwindleFocalPoint(of rect: Rect, _ direction: CardinalDirection) -> CGPoint {
++    switch direction {
++        case .left: CGPoint(x: rect.minX - 1, y: rect.center.y)
++        case .right: CGPoint(x: rect.maxX + 1, y: rect.center.y)
++        case .up: CGPoint(x: rect.center.x, y: rect.minY - 1)
++        case .down: CGPoint(x: rect.center.x, y: rect.maxY + 1)
++    }
++}
++
++/// Where `rect`, inside `container`, ends up once `removed` (a child slot of `container`) is taken out and the rest
++/// of `container` stretches along `orientation` to fill the gap. Exact for binary trees, close enough for wider ones.
++func collapse(_ rect: Rect, removing removed: Rect, from container: Rect, along orientation: Orientation) -> Rect {
++    let start = orientation == .h ? container.minX : container.minY
++    let length = container.getDimension(orientation)
++    let gapStart = orientation == .h ? removed.minX : removed.minY
++    let gapLength = removed.getDimension(orientation)
++    guard length - gapLength > 0 else { return rect }
++    let scale = length / (length - gapLength)
++    func map(_ x: CGFloat) -> CGFloat {
++        let kept = x <= gapStart ? x - start : max(x - gapLength, gapStart) - start
++        return start + kept * scale
++    }
++    switch orientation {
++        case .h:
++            let minX = map(rect.minX), maxX = map(rect.maxX)
++            return Rect(topLeftX: minX, topLeftY: rect.minY, width: maxX - minX, height: rect.height)
++        case .v:
++            let minY = map(rect.minY), maxY = map(rect.maxY)
++            return Rect(topLeftX: rect.minX, topLeftY: minY, width: rect.width, height: maxY - minY)
++    }
++}
++
++extension Window {
++    /// Accordion children overlap, so their layout rects say nothing about what is next to what.
++    @MainActor
++    fileprivate var isInTilesOnlyBranch: Bool {
++        parents.allSatisfy { ($0 as? TilingContainer)?.layout != .accordion }
++    }
++}
+
+diff --git a/Sources/AppBundleTests/command/DwindleMoveTest.swift b/Sources/AppBundleTests/command/DwindleMoveTest.swift
+new file mode 100644
+--- /dev/null
++++ b/Sources/AppBundleTests/command/DwindleMoveTest.swift
+@@ -0,0 +1,105 @@
++@testable import AppBundle
++import Common
++import XCTest
++
++@MainActor
++final class DwindleMoveTest: XCTestCase {
++    override func setUp() async throws {
++        setUpWorkspacesForTests()
++        config.enableNormalizationFlattenContainers = true
++    }
++
++    /// H[1, V[2, 3]]
++    private func threeWindows() -> (Workspace, TestWindow) {
++        let workspace = Workspace.get(byName: name)
++        var focused: TestWindow!
++        workspace.rootTilingContainer.apply {
++            TestWindow.new(id: 1, parent: $0)
++            TilingContainer.newVTiles(parent: $0, adaptiveWeight: 1).apply {
++                TestWindow.new(id: 2, parent: $0)
++                focused = TestWindow.new(id: 3, parent: $0)
++            }
++        }
++        return (workspace, focused)
++    }
++
++    private func move(_ direction: String, in workspace: Workspace) async throws {
++        try await workspace.layoutWorkspace()
++        await parseCommand("move \(direction)").cmdOrDie.run(.defaultEnv, .emptyStdin)
++        workspace.normalizeContainers()
++    }
++
++    func testMoveIntoSiblingSwapsAcrossSplit() async throws {
++        let (workspace, window) = threeWindows()
++        assertTrue(window.focusWindow())
++        try await move("up", in: workspace)
++        assertEquals(workspace.rootTilingContainer.layoutDescription, .h_tiles([.window(1), .v_tiles([.window(3), .window(2)])]))
++    }
++
++    func testMoveIntoNeighbourSplitsItOnTheNearHalf() async throws {
++        let (workspace, window) = threeWindows()
++        assertTrue(window.focusWindow())
++        try await move("left", in: workspace)
++        // 3 sat in the bottom half, so it takes the bottom half of 1; 2 fills the column 3 left behind.
++        assertEquals(workspace.rootTilingContainer.layoutDescription, .h_tiles([.v_tiles([.window(1), .window(3)]), .window(2)]))
++    }
++
++    func testMoveKeepsTreeBinaryInsteadOfAddingColumns() async throws {
++        let workspace = Workspace.get(byName: name)
++        var window3: TestWindow!
++        workspace.rootTilingContainer.apply {
++            TestWindow.new(id: 1, parent: $0)
++            TilingContainer.newVTiles(parent: $0, adaptiveWeight: 1).apply {
++                TestWindow.new(id: 2, parent: $0)
++                TilingContainer.newHTiles(parent: $0, adaptiveWeight: 1).apply {
++                    window3 = TestWindow.new(id: 3, parent: $0)
++                    TestWindow.new(id: 4, parent: $0)
++                }
++            }
++        }
++        assertTrue(window3.focusWindow())
++        try await move("left", in: workspace)
++        assertEquals(
++            workspace.rootTilingContainer.layoutDescription,
++            .h_tiles([.v_tiles([.window(1), .window(3)]), .v_tiles([.window(2), .window(4)])]),
++        )
++    }
++
++    func testMoveAtWorkspaceEdgeFallsBackToRegularMove() async throws {
++        let workspace = Workspace.get(byName: name)
++        workspace.rootTilingContainer.apply {
++            TestWindow.new(id: 1, parent: $0)
++            assertTrue(TestWindow.new(id: 2, parent: $0).focusWindow())
++        }
++        try await move("right", in: workspace)
++        assertEquals(workspace.rootTilingContainer.layoutDescription, .h_tiles([.window(1), .window(2)]))
++        try await move("left", in: workspace)
++        assertEquals(workspace.rootTilingContainer.layoutDescription, .h_tiles([.window(2), .window(1)]))
++    }
++
++    func testCollapseStretchesRemainingSlotsOverTheRemovedOne() {
++        let container = Rect(topLeftX: 0, topLeftY: 0, width: 1000, height: 500)
++        let removed = Rect(topLeftX: 0, topLeftY: 0, width: 400, height: 500)
++        assertEquals(
++            collapse(Rect(topLeftX: 400, topLeftY: 0, width: 600, height: 250), removing: removed, from: container, along: .h).components,
++            [0, 0, 1000, 250],
++        )
++        let removedTail = Rect(topLeftX: 0, topLeftY: 300, width: 1000, height: 200)
++        assertEquals(
++            collapse(Rect(topLeftX: 0, topLeftY: 0, width: 1000, height: 300), removing: removedTail, from: container, along: .v).components,
++            [0, 0, 1000, 500],
++        )
++    }
++
++    func testFocalPointIsJustPastTheEdge() {
++        let rect = Rect(topLeftX: 100, topLeftY: 100, width: 200, height: 100)
++        assertEquals(dwindleFocalPoint(of: rect, .left), CGPoint(x: 99, y: 150))
++        assertEquals(dwindleFocalPoint(of: rect, .right), CGPoint(x: 301, y: 150))
++        assertEquals(dwindleFocalPoint(of: rect, .up), CGPoint(x: 200, y: 99))
++        assertEquals(dwindleFocalPoint(of: rect, .down), CGPoint(x: 200, y: 201))
++    }
++}
++
++extension Rect {
++    fileprivate var components: [CGFloat] { [minX, minY, width, height] }
++}
