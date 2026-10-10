@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Window animations: tiled windows glide to their new positions on a spring instead of jumping. By default a window slides and resizes once when it arrives, so heavy apps (browsers, terminals, Electron) keep up; `animate-size = true` resizes on every frame instead. Configure through the `[animations]` table (`enabled`, `duration-ms`, `animate-size`). Off while macOS's Reduce Motion is on.
+- Window animations: tiled windows glide to their new positions on a spring instead of jumping. Two styles under `[animations] style`: `fancy` (default) morphs position and size together on a soft spring; `fast` slides windows on a stiffer spring and resizes them once, so heavy apps (browsers, terminals, Electron) keep up. Also `enabled` and `duration-ms`. Off while macOS's Reduce Motion is on.
 
 ### Changed
 

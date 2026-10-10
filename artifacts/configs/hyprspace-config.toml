@@ -36,6 +36,8 @@ modifier = 'alt'
 [animations]
 enabled = true
 duration-ms = 150
+# 'fancy' morphs position and size together; 'fast' slides windows and resizes them once, so heavy apps keep up.
+style = 'fancy'
 
 [gaps]
 inner.horizontal = 18

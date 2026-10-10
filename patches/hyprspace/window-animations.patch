@@ -11,19 +11,25 @@ diff --git a/Sources/AppBundle/config/Config.swift b/Sources/AppBundle/config/Co
  
      var onFocusChanged: Shell<any Command> = .empty
      // var onFocusedWorkspaceChanged: [any Command] = []
-@@ -69,6 +70,15 @@
+@@ -69,6 +70,21 @@
  
  struct FocusFollowsMouse: ConvenienceMutable {
      var enabled: Bool = false
 +}
 +
 +/// `[animations]`: tiled windows glide to their new frames instead of jumping. Off while macOS's Reduce Motion is on.
-+struct Animations: ConvenienceMutable {
++struct Animations: ConvenienceMutable, Equatable {
 +    var enabled: Bool = true
 +    /// Roughly how long a window takes to reach its tile. 0 jumps, as with animations off.
 +    var durationMs: Int = 150
-+    /// Resize windows on every frame instead of sliding them and resizing once; smoother where apps keep up.
-+    var animateSize: Bool = false
++    var style: AnimationStyle = .fancy
++}
++
++enum AnimationStyle: String, CaseIterable, Equatable {
++    /// Position and size morph together on a soft spring.
++    case fancy
++    /// Windows slide on a stiffer spring and resize once, so heavy apps keep up.
++    case fast
  }
  
  struct MouseDrag: ConvenienceMutable {
@@ -32,11 +38,13 @@ diff --git a/Sources/AppBundle/config/parseAnimations.swift b/Sources/AppBundle/
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundle/config/parseAnimations.swift
-@@ -0,0 +1,15 @@
+@@ -0,0 +1,21 @@
++import Common
++
 +private let animationsParserTable: [String: any ParserProtocol<Animations>] = [
 +    "enabled": Parser(\.enabled, parseBool),
 +    "duration-ms": Parser(\.durationMs, parseAnimationDuration),
-+    "animate-size": Parser(\.animateSize, parseBool),
++    "style": Parser(\.style, parseAnimationStyle),
 +]
 +
 +func parseAnimations(_ rawConfig: OrderedJson, _ backtrace: ConfigBacktrace, _ c: inout ConfigParserContext) -> Animations {
@@ -47,6 +55,10 @@ new file mode 100644
 +    parseInt(raw, backtrace).flatMap {
 +        (0 ... 1000).contains($0) ? .success($0) : .failure(.init(backtrace, "duration-ms must be in [0, 1000] range"))
 +    }
++}
++
++private func parseAnimationStyle(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> ResOrConfigParseDiagnostic<AnimationStyle> {
++    parseString(raw, backtrace).flatMap { parseEnum($0, AnimationStyle.self).toParsedConfig(backtrace) }
 +}
 
 diff --git a/Sources/AppBundle/config/parseConfig.swift b/Sources/AppBundle/config/parseConfig.swift
@@ -65,7 +77,7 @@ diff --git a/Sources/AppBundle/layout/WindowAnimator.swift b/Sources/AppBundle/l
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundle/layout/WindowAnimator.swift
-@@ -0,0 +1,321 @@
+@@ -0,0 +1,354 @@
 +import AppKit
 +import Common
 +import QuartzCore
@@ -75,10 +87,13 @@ new file mode 100644
 +// newer one overtook. Once a window arrives it gets one regular full write. A new layout mid-flight retargets the
 +// spring, so the window curves to its new tile instead of restarting.
 +//
-+// Resizing a window makes its app lay its content out again, which browsers, terminals and Electron apps can't do
-+// at display rate. So by default a window only slides: it shrinks to the smaller of its old and new size up front,
-+// moves with one position write per frame, and grows into its tile with the final write. `animate-size` resizes
-+// it on every frame instead, which looks smoother where the app keeps up.
++// Two styles:
++// - `fancy` morphs the whole frame: position and size ride a soft spring every frame, so neighbouring windows'
++//   shared edges move together. Each step is a size and a position write. AXEnhancedUserInterface is turned off
++//   once per app for the whole animation instead of being checked around every write.
++// - `fast` only slides. Resizing makes an app lay its content out again, which browsers, terminals and Electron
++//   apps can't do at display rate, so the window shrinks to the smaller of its old and new size up front, moves
++//   with one position write per frame on a stiffer spring, and grows into its tile with the final write.
 +//
 +// An app's AX thread serves all of its windows one write at a time, and a resize can hold it for tens of
 +// milliseconds. If the springs kept running meanwhile, the frames written in that time would be overtaken before
@@ -90,10 +105,12 @@ new file mode 100644
 +/// A damped spring on one value: `response` is roughly the time to arrive, `damping` 1 arrives without overshoot.
 +/// Semi-implicit Euler with substeps short enough to stay stable.
 +struct Spring: Equatable {
++    let response: Double
 +    let stiffness: Double
 +    let friction: Double
 +
 +    init(response: Double, damping: Double) {
++        self.response = response
 +        let omega = 2 * Double.pi / max(response, 0.001)
 +        stiffness = omega * omega
 +        friction = 2 * damping * omega
@@ -137,14 +154,12 @@ new file mode 100644
 +        age = 0
 +    }
 +
-+    /// Advance by `dt` seconds. True once at rest on the target, or after `timeout` seconds.
-+    mutating func step(_ spring: Spring, dt: Double, timeout: Double) -> Bool {
++    /// Advance by `dt` seconds. True once within `settle` of the target, or after `timeout` seconds.
++    mutating func step(_ spring: Spring, dt: Double, timeout: Double, settle: Settle = .exact) -> Bool {
 +        age += dt
 +        let goal = Self.components(target)
 +        for i in 0 ..< 4 { spring.step(&value[i], &velocity[i], to: goal[i], dt: dt) }
-+        // The last few points of a spring crawl in for longer than the rest of the move took. Within 3 pt and
-+        // slower than 100 pt/s, the final write lands the window without a visible jump.
-+        let settled = (0 ..< 4).allSatisfy { abs(value[$0] - goal[$0]) < 3 && abs(velocity[$0]) < 100 }
++        let settled = (0 ..< 4).allSatisfy { abs(value[$0] - goal[$0]) < settle.distance && abs(velocity[$0]) < settle.speed }
 +        if settled || age >= timeout {
 +            value = goal
 +            velocity = [0, 0, 0, 0]
@@ -158,11 +173,25 @@ new file mode 100644
 +    }
 +}
 +
++/// How close to its target, and how slow, a window must be for the final write to land it.
++struct Settle: Equatable {
++    let distance: Double
++    let speed: Double
++
++    /// Rides the spring all the way in.
++    static let exact = Settle(distance: 0.5, speed: 10)
++    /// The last few points of a spring crawl in for longer than the rest of the move took. Within 3 pt and slower
++    /// than 100 pt/s, the final write lands the window without a visible jump.
++    static let early = Settle(distance: 3, speed: 100)
++}
++
 +@MainActor
 +final class WindowAnimator: NSObject {
 +    static let shared = WindowAnimator()
 +
 +    private struct Entry {
++        /// Held so the app's animation state can be released even once the window is gone.
++        let window: Window
 +        var animation: FrameAnimation
 +        /// The size the window keeps while it slides, or nil when its size is animated along with its position.
 +        var slideSize: CGSize?
@@ -184,8 +213,9 @@ new file mode 100644
 +    /// Until when the AX move and resize events a window sends are still the echo of its final write.
 +    private var quietUntil: [UInt32: CFTimeInterval] = [:]
 +    private var spring = Spring(response: 0.15, damping: 0.9)
++    private var settle = Settle.exact
 +    private var timeout = 1.0
-+    private var durationMs = 150
++    private var springConfig: Animations? = nil
 +    private var displayLink: AnyObject? = nil
 +    private var timer: Timer? = nil
 +
@@ -211,7 +241,7 @@ new file mode 100644
 +        let target = CGRect(origin: topLeft, size: size)
 +        let previous = targets.updateValue(target, forKey: id)
 +        guard isEnabled, !isResizingTiledWindowWithMouse else {
-+            entries[id] = nil
++            removeEntry(id)
 +            pendingStarts[id] = nil
 +            jumpNext.remove(id)
 +            window.setAxFrame(topLeft, size)
@@ -261,7 +291,7 @@ new file mode 100644
 +
 +    /// The window left the tiling layout (floating) or its last frame no longer says where it is.
 +    func forget(_ windowId: UInt32) {
-+        entries[windowId] = nil
++        removeEntry(windowId)
 +        pendingStarts[windowId] = nil
 +        targets[windowId] = nil
 +        quietUntil[windowId] = nil
@@ -274,25 +304,40 @@ new file mode 100644
 +    }
 +
 +    private func syncSpring() {
-+        guard durationMs != config.animations.durationMs else { return }
-+        durationMs = config.animations.durationMs
-+        // With the settle thresholds above, this spring has a window in place in roughly `duration-ms`.
-+        let response = 0.7 * Double(durationMs) / 1000
-+        spring = Spring(response: response, damping: 0.9)
-+        timeout = max(0.4, 4 * response)
++        guard springConfig?.durationMs != config.animations.durationMs || springConfig?.style != config.animations.style
++        else { return }
++        springConfig = config.animations
++        let duration = Double(config.animations.durationMs) / 1000
++        // Either way a window is in place in roughly `duration-ms`; `fast` gets there with a stiffer spring that
++        // stops early, `fancy` with a softer one ridden all the way in.
++        switch config.animations.style {
++            case .fancy:
++                spring = Spring(response: duration, damping: 0.9)
++                settle = .exact
++            case .fast:
++                spring = Spring(response: 0.7 * duration, damping: 0.9)
++                settle = .early
++        }
++        timeout = max(0.4, 4 * spring.response)
 +    }
 +
 +    private func start(_ id: UInt32, from: CGRect, to target: CGRect) {
-+        var entry = Entry(animation: FrameAnimation(from: from, to: target))
-+        if !config.animations.animateSize {
++        guard let window = Window.get(byId: id) else { return }
++        var entry = Entry(window: window, animation: FrameAnimation(from: from, to: target))
++        window.animationStarted()
++        if config.animations.style == .fast {
 +            let slideSize = from.size.shrunk(to: target.size)
 +            entry.slideSize = slideSize
-+            if slideSize != from.size, let window = Window.get(byId: id) {
++            if slideSize != from.size {
 +                entry.inFlight = send(window, from.origin, slideSize) // The slide starts once the window has shrunk
 +            }
 +        }
 +        entries[id] = entry
 +        run()
++    }
++
++    private func removeEntry(_ id: UInt32) {
++        entries.removeValue(forKey: id)?.window.animationEnded()
 +    }
 +
 +    private func run() {
@@ -331,7 +376,7 @@ new file mode 100644
 +    private func step(now: CFTimeInterval) {
 +        for (id, entry) in entries {
 +            guard let window = Window.get(byId: id), window.windowId != currentlyManipulatedWithMouseWindowId else {
-+                entries[id] = nil
++                removeEntry(id)
 +                continue
 +            }
 +            // Wait for the app to catch up, but not on one that seems hung.
@@ -340,12 +385,12 @@ new file mode 100644
 +            // A window that waited resumes where it was instead of leaping ahead.
 +            let dt = min(entry.lastAdvance.map { now - $0 } ?? 1.0 / 60, 1.0 / 30)
 +            entry.lastAdvance = now
-+            let done = entry.animation.step(spring, dt: dt, timeout: timeout)
++            let done = entry.animation.step(spring, dt: dt, timeout: timeout, settle: settle)
 +            let frame = entry.animation.frame
 +            if done {
-+                entries[id] = nil
 +                quietUntil[id] = now + 0.25
 +                window.setAxFrame(frame.origin, frame.size)
++                removeEntry(id) // After the final write, which the app's thread then performs first
 +            } else if entry.slideSize != nil {
 +                entry.inFlight = send(window, frame.origin, nil)
 +                entries[id] = entry
@@ -471,11 +516,14 @@ diff --git a/Sources/AppBundle/tree/MacWindow.swift b/Sources/AppBundle/tree/Mac
          // Don't accidentally override prevUnhiddenEmulationPosition in case of subsequent `hideInCorner` calls
          if !isHiddenInCorner {
              guard let windowRect = try await getAxRect(.cancellable) else { return }
-@@ -192,6 +193,10 @@
+@@ -192,6 +193,13 @@
  
      override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
          macApp.setAxFrame(windowId, topLeft, size)
 +    }
++
++    override func animationStarted() { macApp.animationStarted() }
++    override func animationEnded() { macApp.animationEnded() }
 +
 +    override func setAxFrameForAnimation(_ topLeft: CGPoint, _ size: CGSize?, _ write: AnimationWrite) {
 +        macApp.setAxFrameForAnimation(windowId, topLeft, size, write)
@@ -486,7 +534,7 @@ diff --git a/Sources/AppBundle/tree/MacWindow.swift b/Sources/AppBundle/tree/Mac
 diff --git a/Sources/AppBundleTests/config/ConfigTest.swift b/Sources/AppBundleTests/config/ConfigTest.swift
 --- a/Sources/AppBundleTests/config/ConfigTest.swift
 +++ b/Sources/AppBundleTests/config/ConfigTest.swift
-@@ -90,6 +90,35 @@
+@@ -90,6 +90,43 @@
              """,
          )
          assertEquals(invalid.strErrors, ["[ERROR] mouse-drag.modifier: Can't parse mouse drag modifier 'hyper'"])
@@ -497,20 +545,20 @@ diff --git a/Sources/AppBundleTests/config/ConfigTest.swift b/Sources/AppBundleT
 +        assertEquals(defaults.errors, [])
 +        assertTrue(defaults.config.animations.enabled)
 +        assertEquals(defaults.config.animations.durationMs, 150)
-+        assertFalse(defaults.config.animations.animateSize)
++        assertEquals(defaults.config.animations.style, .fancy)
 +
 +        let result = parseConfig(
 +            """
 +            [animations]
 +            enabled = false
 +            duration-ms = 300
-+            animate-size = true
++            style = 'fast'
 +            """,
 +        )
 +        assertEquals(result.errors, [])
 +        assertFalse(result.config.animations.enabled)
 +        assertEquals(result.config.animations.durationMs, 300)
-+        assertTrue(result.config.animations.animateSize)
++        assertEquals(result.config.animations.style, .fast)
 +
 +        let invalid = parseConfig(
 +            """
@@ -519,6 +567,14 @@ diff --git a/Sources/AppBundleTests/config/ConfigTest.swift b/Sources/AppBundleT
 +            """,
 +        )
 +        assertEquals(invalid.strErrors, ["[ERROR] animations.duration-ms: duration-ms must be in [0, 1000] range"])
++
++        let invalidStyle = parseConfig(
++            """
++            [animations]
++            style = 'slow'
++            """,
++        )
++        assertEquals(invalidStyle.errors.count, 1)
      }
  
      func testConfigVersionOutOfBounds() {
@@ -527,7 +583,7 @@ diff --git a/Sources/AppBundleTests/layout/WindowAnimatorTest.swift b/Sources/Ap
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundleTests/layout/WindowAnimatorTest.swift
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,50 @@
 +@testable import AppBundle
 +import XCTest
 +
@@ -561,6 +617,17 @@ new file mode 100644
 +        assertEquals(animation.target, CGRect(x: -1000, y: 0, width: 0, height: 0))
 +    }
 +
++    func testEarlySettleLandsSoonerThanExact() {
++        func steps(_ settle: Settle) -> Int {
++            var animation = FrameAnimation(from: .zero, to: CGRect(x: 1000, y: 0, width: 0, height: 0))
++            var steps = 0
++            while !animation.step(Spring(response: 0.15, damping: 0.9), dt: 1.0 / 120, timeout: 1, settle: settle) { steps += 1 }
++            assertEquals(animation.frame, CGRect(x: 1000, y: 0, width: 0, height: 0))
++            return steps
++        }
++        assertTrue(steps(.early) < steps(.exact))
++    }
++
 +    func testAnimationGivesUpAfterTimeout() {
 +        var animation = FrameAnimation(from: .zero, to: CGRect(x: 1000, y: 0, width: 0, height: 0))
 +        assertTrue(animation.step(Spring(response: 1, damping: 0.9), dt: 1.0 / 30, timeout: 0.01))
@@ -579,8 +646,8 @@ diff --git a/docs/config-examples/default-config.toml b/docs/config-examples/def
 +[animations]
 +    enabled = true
 +    duration-ms = 150
-+    # Resize windows on every frame instead of sliding them and resizing once. Smoother, but heavy apps lag.
-+    animate-size = false
++    # 'fancy' morphs position and size together; 'fast' slides windows and resizes them once, so heavy apps keep up.
++    style = 'fancy'
 +
  [mode.main.binding]
      alt-enter = 'new-window-or-open Ghostty'
@@ -589,10 +656,13 @@ diff --git a/docs/config-examples/default-config.toml b/docs/config-examples/def
 diff --git a/Sources/AppBundle/tree/Window.swift b/Sources/AppBundle/tree/Window.swift
 --- a/Sources/AppBundle/tree/Window.swift
 +++ b/Sources/AppBundle/tree/Window.swift
-@@ -40,6 +40,11 @@
+@@ -40,6 +40,14 @@
      func getCenter(_ cm: CancellationMode) async throws -> CGPoint? { try await getAxRect(cm)?.center }
  
      func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) { die("Not implemented") }
++    /// The window starts or stops animating; its app can hold per-app animation state in between.
++    func animationStarted() {}
++    func animationEnded() {}
 +    /// One frame of an animation, marking `write` once the app has performed it.
 +    func setAxFrameForAnimation(_ topLeft: CGPoint, _ size: CGSize?, _ write: AnimationWrite) {
 +        setAxFrame(topLeft, size)
@@ -605,19 +675,60 @@ diff --git a/Sources/AppBundle/tree/Window.swift b/Sources/AppBundle/tree/Window
 diff --git a/Sources/AppBundle/tree/MacApp.swift b/Sources/AppBundle/tree/MacApp.swift
 --- a/Sources/AppBundle/tree/MacApp.swift
 +++ b/Sources/AppBundle/tree/MacApp.swift
-@@ -156,6 +156,23 @@
+@@ -16,6 +16,9 @@
+     var lastNativeFocusedWindowId: UInt32? = nil
+     private var thread: Thread?
+     private var setFrameJobs: [UInt32: RunLoopJob] = [:]
++    /// Windows of this app animating right now. AXEnhancedUserInterface stays off while any is.
++    private var animatingWindows = 0
++    private let enhancedUserInterfaceBeforeAnimation = EnhancedUserInterfaceState()
+     @MainActor private static var focusJob: RunLoopJob? = nil
+ 
+     /*conforms*/ var name: String? { nsApp.localizedName }
+@@ -156,6 +159,54 @@
          }
      }
  
-+    /// One frame of an animation, marking `write` once performed. A move is a single position write, skipping the
-+    /// AXEnhancedUserInterface round trip of `setAxFrame`: an animation sends one per display frame, and the final
-+    /// full write still goes through `setAxFrame`.
++    /// AXEnhancedUserInterface makes apps animate frame changes themselves and fight ours. `setAxFrame` turns it off
++    /// around every write; an animation turns it off once for the app and back on when its last window settles.
++    func animationStarted() {
++        animatingWindows += 1
++        guard animatingWindows == 1 else { return }
++        _ = thread?.runInLoopAsync(job: RunLoopJob(.nonCancellable)) { [axApp, enhancedUserInterfaceBeforeAnimation] _ in
++            let app = axApp.threadGuarded
++            enhancedUserInterfaceBeforeAnimation.wasEnabled = app.get(Ax.enhancedUserInterfaceAttr) == true
++            if enhancedUserInterfaceBeforeAnimation.wasEnabled { app.set(Ax.enhancedUserInterfaceAttr, false) }
++        }
++    }
++
++    func animationEnded() {
++        guard animatingWindows > 0 else { return }
++        animatingWindows -= 1
++        guard animatingWindows == 0 else { return }
++        _ = thread?.runInLoopAsync(job: RunLoopJob(.nonCancellable)) { [axApp, enhancedUserInterfaceBeforeAnimation] _ in
++            if enhancedUserInterfaceBeforeAnimation.wasEnabled { axApp.threadGuarded.set(Ax.enhancedUserInterfaceAttr, true) }
++            enhancedUserInterfaceBeforeAnimation.wasEnabled = false
++        }
++    }
++
++    /// One frame of an animation, marking `write` once performed. AXEnhancedUserInterface is already off for the
++    /// animation (`animationStarted`), and an in-between frame needs no edge-of-screen size fix-up: a move is one
++    /// position write and a morph two writes. The final full write still goes through `setAxFrame`.
 +    func setAxFrameForAnimation(_ windowId: UInt32, _ topLeft: CGPoint, _ size: CGSize?, _ write: AnimationWrite) {
 +        setFrameJobs.removeValue(forKey: windowId)?.cancel()
-+        setFrameJobs[windowId] = withWindowAsync(windowId, .cancellable) { [axApp] window, job in
++        setFrameJobs[windowId] = withWindowAsync(windowId, .cancellable) { window, job in
 +            if let size {
-+                try disableAnimations(app: axApp.threadGuarded, job) {
-+                    try setFrame(window, topLeft, size, job)
++                // Shrink before moving and move before growing, so the window never pokes past where it is
++                // going and gets clamped by the screen edge.
++                let growing = (window.get(Ax.sizeAttr).map { size.width > $0.width || size.height > $0.height }) ?? false
++                if growing {
++                    window.set(Ax.topLeftCornerAttr, topLeft)
++                    try job.checkCancellation()
++                    window.set(Ax.sizeAttr, size)
++                } else {
++                    window.set(Ax.sizeAttr, size)
++                    try job.checkCancellation()
++                    window.set(Ax.topLeftCornerAttr, topLeft)
 +                }
 +            } else {
 +                window.set(Ax.topLeftCornerAttr, topLeft)
@@ -629,3 +740,15 @@ diff --git a/Sources/AppBundle/tree/MacApp.swift b/Sources/AppBundle/tree/MacApp
      func setAxFrameForTermination(_ windowId: UInt32, _ topLeft: CGPoint?, _ size: CGSize?) {
          setFrameJobs.removeValue(forKey: windowId)?.cancel()
          let semaphore = DispatchSemaphore(value: 0)
+@@ -401,6 +452,11 @@
+     }
+ }
+ 
++/// Whether the app had AXEnhancedUserInterface on before an animation turned it off. Only touched on the app's thread.
++private final class EnhancedUserInterfaceState: @unchecked Sendable {
++    var wasEnabled = false
++}
++
+ private func getAxRect(window: AXUIElement, job: RunLoopJob) throws -> Rect? {
+     guard let topLeftCorner = window.get(Ax.topLeftCornerAttr) else { return nil }
+     try job.checkCancellation()
