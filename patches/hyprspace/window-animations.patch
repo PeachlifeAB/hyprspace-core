@@ -77,7 +77,7 @@ diff --git a/Sources/AppBundle/layout/WindowAnimator.swift b/Sources/AppBundle/l
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundle/layout/WindowAnimator.swift
-@@ -0,0 +1,557 @@
+@@ -0,0 +1,577 @@
 +import AppKit
 +import Common
 +import QuartzCore
@@ -288,7 +288,9 @@ new file mode 100644
 +        let id = window.windowId
 +        let target = CGRect(origin: topLeft, size: size)
 +        let previous = targets.updateValue(target, forKey: id)
-+        guard isEnabled, !isResizingTiledWindowWithMouse else {
++        // Floating fullscreen is a one-shot placement whose request is cleared by the layout pass. It must land
++        // immediately: the next floating layout forgets tiling animations and would interrupt a phased move.
++        guard isEnabled, case .tilingContainer = window.windowParentCases, !isResizingTiledWindowWithMouse else {
 +            removeEntry(id)
 +            pendingStarts[id] = nil
 +            jumpNext.remove(id)
@@ -354,18 +356,24 @@ new file mode 100644
 +        }
 +    }
 +
-+    /// The window left the tiling layout (floating) or its last frame no longer says where it is.
++    /// Drop obsolete tiling state without cancelling a newer regular placement, such as floating centering.
 +    func forget(_ windowId: UInt32) {
 +        if let window = entries[windowId]?.window ?? Window.get(byId: windowId),
 +           entries[windowId] != nil || quietUntil[windowId] != nil
 +        {
-+            window.cancelAxFrame()
++            window.cancelAnimationAxFrame()
 +        }
 +        removeEntry(windowId)
 +        pendingStarts[windowId] = nil
 +        targets[windowId] = nil
 +        quietUntil[windowId] = nil
 +        if entries.isEmpty { stop() }
++    }
++
++    /// Mouse takeover also cancels a pending regular final write; ordinary layout cleanup must preserve it.
++    func interrupt(_ windowId: UInt32) {
++        (entries[windowId]?.window ?? Window.get(byId: windowId))?.cancelAxFrame()
++        forget(windowId)
 +    }
 +
 +    /// The window is about to be parked in a corner of the screen; when it returns it jumps back into place.
@@ -474,11 +482,18 @@ new file mode 100644
 +
 +    func step(now: CFTimeInterval) {
 +        for (id, entry) in entries {
-+            guard let window = Window.get(byId: id), window.windowId != currentlyManipulatedWithMouseWindowId else {
++            guard let window = Window.get(byId: id), case .tilingContainer = window.windowParentCases,
++                  window.windowId != currentlyManipulatedWithMouseWindowId
++            else {
 +                forget(id)
 +                continue
 +            }
 +            let target = entry.phases.last ?? entry.animation.target
++            // Supersession takes priority even after a delayed display tick has passed the deadline.
++            if entry.inFlight?.write.result == .cancelled {
++                forget(id)
++                continue
++            }
 +            // Queue the final frame once, cancelling stale queued updates. This bounds scheduling time; it cannot
 +            // make an unresponsive external app perform the AX write by the deadline.
 +            if now >= entry.deadline {
@@ -491,8 +506,13 @@ new file mode 100644
 +                        if now - sentAt < 0.1 { continue }
 +                        finish(id, window, target, now: now)
 +                        continue
-+                    case .failed, .cancelled:
++                    case .failed:
 +                        finish(id, window, target, now: now)
++                        continue
++                    case .cancelled:
++                        // A newer explicit placement owns the window now. Reasserting the old goal here would
++                        // overwrite it even before the subsequent floating layout has a chance to forget us.
++                        forget(id)
 +                        continue
 +                    case .applied: break
 +                }
@@ -639,29 +659,60 @@ new file mode 100644
 diff --git a/Sources/AppBundle/layout/layoutRecursive.swift b/Sources/AppBundle/layout/layoutRecursive.swift
 --- a/Sources/AppBundle/layout/layoutRecursive.swift
 +++ b/Sources/AppBundle/layout/layoutRecursive.swift
-@@ -24,6 +24,7 @@
+@@ -2,13 +2,13 @@
+ 
+ extension Workspace {
+     @MainActor
+-    func layoutWorkspace() async throws {
++    func layoutWorkspace(animator: WindowAnimator = .shared) async throws {
+         if isEffectivelyEmpty { return }
+         let rect = workspaceMonitor.visibleRectPadded(byOuterGapsOf: effectiveGaps)
+         // If monitors are aligned vertically and the monitor below has smaller width, then macOS may not allow the
+         // window on the upper monitor to take full width. rect.height - 1 resolves this problem
+         // But I also faced this problem in monitors horizontal configuration. ¯\_(ツ)_/¯
+-        try await layoutRecursive(rect.topLeftCorner, width: rect.width, height: rect.height - 1, virtual: rect, LayoutContext(self))
++        try await layoutRecursive(rect.topLeftCorner, width: rect.width, height: rect.height - 1, virtual: rect, LayoutContext(self, animator))
+     }
+ }
+ 
+@@ -24,6 +24,8 @@
                  try await workspace.floatingWindowsContainer.layoutRecursive(point, width: width, height: height, virtual: virtual, context)
              case .floatingWindowsContainer(let container):
                  for window in container.children.filterIsInstance(of: Window.self) {
-+                    WindowAnimator.shared.forget(window.windowId)
++                    // A command may already have queued this window's new floating placement.
++                    context.animator.forget(window.windowId)
                      window.lastAppliedLayoutPhysicalRect = nil
                      window.lastAppliedLayoutVirtualRect = nil
                      try await window.layoutFloatingWindow(context)
-@@ -37,7 +38,7 @@
+@@ -37,7 +39,7 @@
                      } else {
                          lastAppliedLayoutPhysicalRect = physicalRect
                          window.isFullscreen = false
 -                        window.setAxFrame(point, CGSize(width: width, height: height))
-+                        WindowAnimator.shared.setFrame(window, point, CGSize(width: width, height: height))
++                        context.animator.setFrame(window, point, CGSize(width: width, height: height))
                      }
                  }
              case .tilingContainer(let container):
-@@ -102,7 +103,7 @@
+@@ -59,10 +61,12 @@
+ private struct LayoutContext {
+     let workspace: Workspace
+     let resolvedGaps: ResolvedGaps
++    let animator: WindowAnimator
+ 
+     @MainActor
+-    init(_ workspace: Workspace) {
++    init(_ workspace: Workspace, _ animator: WindowAnimator) {
+         self.workspace = workspace
++        self.animator = animator
+         self.resolvedGaps = ResolvedGaps(gaps: workspace.effectiveGaps, monitor: workspace.workspaceMonitor)
+     }
+ }
+@@ -102,7 +106,7 @@
          let monitorRect = noOuterGapsInFullscreen
              ? context.workspace.workspaceMonitor.visibleRect
              : context.workspace.workspaceMonitor.visibleRectPadded(byOuterGapsOf: config.singleWindowGaps ?? config.gaps)
 -        setAxFrame(monitorRect.topLeftCorner, CGSize(width: monitorRect.width, height: monitorRect.height))
-+        WindowAnimator.shared.setFrame(self, monitorRect.topLeftCorner, CGSize(width: monitorRect.width, height: monitorRect.height))
++        context.animator.setFrame(self, monitorRect.topLeftCorner, CGSize(width: monitorRect.width, height: monitorRect.height))
      }
  }
  
@@ -690,7 +741,7 @@ diff --git a/Sources/AppBundle/mouse/mouse.swift b/Sources/AppBundle/mouse/mouse
 +) async -> Bool {
 +    guard animator.isAnimating(windowId) else { return false }
 +    guard let window = Window.get(byId: windowId), await isUserManipulating(window) else { return true }
-+    animator.forget(windowId)
++    animator.interrupt(windowId)
 +    return false
 +}
  
@@ -732,7 +783,7 @@ diff --git a/Sources/AppBundle/tree/MacWindow.swift b/Sources/AppBundle/tree/Mac
          // Don't accidentally override prevUnhiddenEmulationPosition in case of subsequent `hideInCorner` calls
          if !isHiddenInCorner {
              guard let windowRect = try await getAxRect(.cancellable) else { return }
-@@ -192,6 +193,14 @@
+@@ -192,6 +193,15 @@
  
      override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
          macApp.setAxFrame(windowId, topLeft, size)
@@ -741,6 +792,7 @@ diff --git a/Sources/AppBundle/tree/MacWindow.swift b/Sources/AppBundle/tree/Mac
 +    override func animationStarted() { macApp.animationStarted() }
 +    override func animationEnded() { macApp.animationEnded() }
 +    override func cancelAxFrame() { macApp.cancelAxFrame(windowId) }
++    override func cancelAnimationAxFrame() { macApp.cancelAnimationAxFrame(windowId) }
 +
 +    override func setAxFrameForAnimation(_ topLeft: CGPoint?, _ size: CGSize?, _ write: AnimationWrite) {
 +        macApp.setAxFrameForAnimation(windowId, topLeft, size, write)
@@ -800,8 +852,9 @@ diff --git a/Sources/AppBundleTests/layout/WindowAnimatorTest.swift b/Sources/Ap
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundleTests/layout/WindowAnimatorTest.swift
-@@ -0,0 +1,432 @@
+@@ -0,0 +1,653 @@
 +@testable import AppBundle
++import Common
 +import XCTest
 +
 +final class WindowAnimatorTest: XCTestCase {
@@ -1044,22 +1097,20 @@ new file mode 100644
 +        assertEquals(window.ends, 1)
 +    }
 +
-+    func testFailedOrCancelledWriterFallsBackToFinalFrame() {
-+        for result in [AnimationWrite.Result.failed, .cancelled] {
-+            let clock = AnimationTestClock()
-+            let animator = WindowAnimator(animations: Animations(), clock: { clock.now })
-+            let window = makeWindow(result == .failed ? 1 : 2)
-+            window.completeImmediately = false
-+            animator.start(window.windowId, from: from, to: moved)
-+            clock.now = 0.01
-+            animator.step(now: clock.now)
-+            window.animationFrames.last?.write.complete(result)
-+            clock.now = 0.02
-+            animator.step(now: clock.now)
-+            assertEquals(window.finalFrames, [moved])
-+            assertEquals(window.ends, 1)
-+            animator.forget(window.windowId)
-+        }
++    func testFailedWriterFallsBackToFinalFrame() {
++        let clock = AnimationTestClock()
++        let animator = WindowAnimator(animations: Animations(), clock: { clock.now })
++        let window = makeWindow()
++        window.completeImmediately = false
++        animator.start(window.windowId, from: from, to: moved)
++        clock.now = 0.01
++        animator.step(now: clock.now)
++        window.animationFrames.last?.write.complete(.failed)
++        clock.now = 0.02
++        animator.step(now: clock.now)
++        assertEquals(window.finalFrames, [moved])
++        assertEquals(window.ends, 1)
++        animator.forget(window.windowId)
 +    }
 +
 +    func testRepeatedTargetDoesNotExtendDeadline() {
@@ -1125,7 +1176,7 @@ new file mode 100644
 +        animator.start(window.windowId, from: from, to: moved)
 +        clock.now = 0.01
 +        animator.step(now: clock.now)
-+        animator.forget(window.windowId)
++        animator.interrupt(window.windowId)
 +        assertEquals(window.animationFrames[0].write.result, .cancelled)
 +        XCTAssertFalse(animator.isAnimating(window.windowId))
 +        clock.now = 1
@@ -1143,7 +1194,7 @@ new file mode 100644
 +        animator.step(now: clock.now)
 +        XCTAssertTrue(animator.isAnimating(window.windowId))
 +        let cancellations = window.cancellations
-+        animator.forget(window.windowId)
++        animator.interrupt(window.windowId)
 +        XCTAssertFalse(animator.isAnimating(window.windowId))
 +        assertEquals(window.cancellations, cancellations + 1)
 +    }
@@ -1190,6 +1241,202 @@ new file mode 100644
 +        assertEquals(window.ends, 1)
 +        assertEquals(window.finalFrames.count, 0)
 +    }
++
++    func testForgetPreservesANewerExplicitFrameWrite() {
++        let clock = AnimationTestClock()
++        let animator = WindowAnimator(animations: Animations(), clock: { clock.now })
++        let window = makeWindow()
++        window.completeImmediately = false
++        window.deferRegularWrites = true
++        animator.start(window.windowId, from: from, to: moved)
++        clock.now = 0.01
++        animator.step(now: clock.now)
++        let placement = CGRect(x: 200, y: 100, width: 700, height: 500)
++        window.setAxFrame(placement.origin, placement.size)
++        animator.forget(window.windowId)
++        window.applyPendingFrame()
++        assertEquals(window.appliedFrame, placement)
++        assertEquals(window.animationFrames[0].write.result, .cancelled)
++        assertEquals(window.ends, 1)
++    }
++
++    func testForgetDuringQuietPeriodPreservesANewerPlacement() {
++        let clock = AnimationTestClock()
++        let animator = WindowAnimator(animations: Animations(), clock: { clock.now })
++        let window = makeWindow()
++        window.deferRegularWrites = true
++        animator.start(window.windowId, from: from, to: moved)
++        clock.now = 0.31
++        animator.step(now: clock.now)
++        let placement = CGRect(x: 200, y: 100, width: 700, height: 500)
++        window.setAxFrame(placement.origin, placement.size)
++        animator.forget(window.windowId)
++        window.applyPendingFrame()
++        assertEquals(window.appliedFrame, placement)
++    }
++
++    func testCancelledAnimationDoesNotReassertItsOldGoalOnNextTick() {
++        let clock = AnimationTestClock()
++        let animator = WindowAnimator(animations: Animations(), clock: { clock.now })
++        let window = makeWindow()
++        window.completeImmediately = false
++        window.deferRegularWrites = true
++        animator.start(window.windowId, from: from, to: moved)
++        clock.now = 0.01
++        animator.step(now: clock.now)
++        let placement = CGRect(x: 200, y: 100, width: 700, height: 500)
++        window.setAxFrame(placement.origin, placement.size)
++        clock.now = 0.02
++        animator.step(now: clock.now) // The display tick can run before the floating refresh forgets this entry.
++        window.applyPendingFrame()
++        assertEquals(window.appliedFrame, placement)
++        assertEquals(window.finalFrames, [placement])
++        assertEquals(window.ends, 1)
++    }
++
++    func testCancelledAnimationDoesNotReassertItsGoalAfterDeadline() {
++        let clock = AnimationTestClock()
++        let animator = WindowAnimator(animations: Animations(), clock: { clock.now })
++        let window = makeWindow()
++        window.completeImmediately = false
++        window.deferRegularWrites = true
++        animator.start(window.windowId, from: from, to: moved)
++        clock.now = 0.01
++        animator.step(now: clock.now)
++        let placement = CGRect(x: 200, y: 100, width: 700, height: 500)
++        window.setAxFrame(placement.origin, placement.size)
++        clock.now = 0.31
++        animator.step(now: clock.now)
++        window.applyPendingFrame()
++        assertEquals(window.appliedFrame, placement)
++        assertEquals(window.finalFrames, [placement])
++        assertEquals(window.ends, 1)
++    }
++
++    func testFloatingBeforeFirstAnimationTickPreservesCenteringWrite() {
++        let clock = AnimationTestClock()
++        let animator = WindowAnimator(animations: Animations(), clock: { clock.now })
++        let window = makeWindow()
++        window.deferRegularWrites = true
++        animator.start(window.windowId, from: from, to: moved)
++        window.bindAsFloatingWindow(to: Workspace.get(byName: name))
++        let placement = CGRect(x: 200, y: 100, width: 700, height: 500)
++        window.setAxFrame(placement.origin, placement.size)
++        clock.now = 0.02
++        animator.step(now: clock.now)
++        window.applyPendingFrame()
++        assertEquals(window.appliedFrame, placement)
++        assertEquals(window.animationFrames.count, 0)
++        assertEquals(window.ends, 1)
++    }
++
++    func testNativeFullscreenBeforeFirstTickStopsTilingAnimation() {
++        let clock = AnimationTestClock()
++        let animator = WindowAnimator(animations: Animations(), clock: { clock.now })
++        let window = makeWindow()
++        animator.start(window.windowId, from: from, to: moved)
++        let workspace = Workspace.get(byName: name)
++        window.bind(to: workspace.macOsNativeFullscreenWindowsContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
++        clock.now = 0.02
++        animator.step(now: clock.now)
++        assertEquals(window.animationFrames.count, 0)
++        assertEquals(window.finalFrames.count, 0)
++        assertEquals(window.ends, 1)
++    }
++
++    func testNestedTopRightWindowStillCentersAfterFloatingRefresh() async throws {
++        try await checkNestedFloatingPlacement(top: true)
++    }
++
++    func testNestedBottomRightWindowStillCentersAfterFloatingRefresh() async throws {
++        try await checkNestedFloatingPlacement(top: false)
++    }
++
++    private func checkNestedFloatingPlacement(top: Bool) async throws {
++        let workspace = Workspace.get(byName: name)
++        let root = workspace.rootTilingContainer
++        TestWindow.new(id: 1, parent: root)
++        let right = TilingContainer.newVTiles(parent: root, adaptiveWeight: 1)
++        let upper = AnimationTestWindow(2, right)
++        let lower = AnimationTestWindow(3, right)
++        let window = top ? upper : lower
++        assertTrue(window.focusWindow())
++        try await workspace.layoutWorkspace()
++        let tiled = try XCTUnwrap(window.appliedFrame)
++        let clock = AnimationTestClock()
++        let animator = WindowAnimator(animations: Animations(), clock: { clock.now })
++        defer { for id in [UInt32(1), 2, 3] { animator.forget(id) } }
++        window.completeImmediately = false
++        animator.start(window.windowId, from: tiled, to: tiled.offsetBy(dx: -100, dy: 0))
++        clock.now = 0.01
++        animator.step(now: clock.now)
++        window.deferRegularWrites = true
++
++        let result = await parseCommand("layout floating").cmdOrDie.run(.defaultEnv, .emptyStdin)
++        assertEquals(result.exitCode.rawValue, 0)
++        XCTAssertTrue(window.isFloating)
++        // The command queues an AX write, then the regular layout and observer refresh run before it lands.
++        try await workspace.layoutWorkspace(animator: animator)
++        try await workspace.layoutWorkspace(animator: animator)
++        window.applyPendingFrame()
++
++        let rect = try XCTUnwrap(window.appliedFrame)
++        let monitor = workspace.workspaceMonitor.visibleRect
++        XCTAssertEqual(rect.midX, monitor.center.x, accuracy: 1)
++        XCTAssertEqual(rect.midY, monitor.center.y, accuracy: 1)
++        assertEquals(rect.size, CGSize(width: monitor.width * 0.625, height: monitor.height * 0.625))
++        assertEquals(window.lastFloatingSize, rect.size)
++    }
++
++    func testFloatingFullscreenSurvivesRepeatedLayoutPasses() async throws {
++        let workspace = Workspace.get(byName: name)
++        let window = AnimationTestWindow(1, workspace.floatingWindowsContainer)
++        window.appliedFrame = from
++        window.deferRegularWrites = true
++        assertTrue(window.focusWindow())
++        let clock = AnimationTestClock()
++        let animator = WindowAnimator(animations: Animations(), clock: { clock.now })
++        defer { animator.forget(window.windowId) }
++
++        let result = await parseCommand("fullscreen --no-outer-gaps").cmdOrDie.run(.defaultEnv, .emptyStdin)
++        assertEquals(result.exitCode.rawValue, 0)
++        try await workspace.layoutWorkspace(animator: animator)
++        await Task.yield()
++        await Task.yield()
++        clock.now = 0.02
++        animator.step(now: clock.now)
++        try await workspace.layoutWorkspace(animator: animator)
++        try await workspace.layoutWorkspace(animator: animator)
++        window.applyPendingFrame()
++
++        let monitor = workspace.workspaceMonitor.visibleRect
++        assertEquals(window.appliedFrame, CGRect(origin: monitor.topLeftCorner, size: CGSize(width: monitor.width, height: monitor.height)))
++        assertEquals(window.animationFrames.count, 0)
++    }
++
++    func testTiledFullscreenStillAnimatesAndFinishes() async throws {
++        let workspace = Workspace.get(byName: name)
++        let window = makeWindow()
++        window.appliedFrame = from
++        assertTrue(window.focusWindow())
++        let clock = AnimationTestClock()
++        let animator = WindowAnimator(animations: Animations(), clock: { clock.now })
++        defer { animator.forget(window.windowId) }
++
++        let result = await parseCommand("fullscreen --no-outer-gaps").cmdOrDie.run(.defaultEnv, .emptyStdin)
++        assertEquals(result.exitCode.rawValue, 0)
++        try await workspace.layoutWorkspace(animator: animator)
++        for _ in 0 ..< 20 where window.starts == 0 { await Task.yield() }
++        assertEquals(window.starts, 1)
++        clock.now = 0.02
++        animator.step(now: clock.now)
++        XCTAssertFalse(window.animationFrames.isEmpty)
++        clock.now = 0.31
++        animator.step(now: clock.now)
++        let monitor = workspace.workspaceMonitor.visibleRect
++        assertEquals(window.appliedFrame, CGRect(origin: monitor.topLeftCorner, size: CGSize(width: monitor.width, height: monitor.height)))
++        assertEquals(window.ends, 1)
++    }
 +}
 +
 +@MainActor
@@ -1210,6 +1457,10 @@ new file mode 100644
 +    var starts = 0
 +    var ends = 0
 +    var cancellations = 0
++    var deferRegularWrites = false
++    var appliedFrame: CGRect?
++    private var pendingFrame: CGRect?
++    private var animationWrite: AnimationWrite?
 +
 +    @MainActor
 +    init(_ id: UInt32, _ parent: NonLeafTreeNodeObject) {
@@ -1220,17 +1471,39 @@ new file mode 100644
 +    override func animationEnded() { ends += 1 }
 +    override func cancelAxFrame() {
 +        cancellations += 1
-+        for frame in animationFrames { frame.write.complete(.cancelled) }
++        animationWrite?.complete(.cancelled)
++        animationWrite = nil
++        pendingFrame = nil
++    }
++
++    override func cancelAnimationAxFrame() {
++        guard animationWrite != nil else { return }
++        cancelAxFrame()
 +    }
 +
 +    override func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) {
 +        cancelAxFrame()
-+        if let topLeft, let size { finalFrames.append(CGRect(origin: topLeft, size: size)) }
++        if let topLeft, let size {
++            let frame = CGRect(origin: topLeft, size: size)
++            finalFrames.append(frame)
++            if deferRegularWrites { pendingFrame = frame } else { appliedFrame = frame }
++        }
 +    }
 +
 +    override func setAxFrameForAnimation(_ topLeft: CGPoint?, _ size: CGSize?, _ write: AnimationWrite) {
++        cancelAxFrame()
++        animationWrite = write
 +        animationFrames.append(Request(position: topLeft, size: size, write: write))
 +        if completeImmediately { write.complete(.applied) }
++    }
++
++    func applyPendingFrame() {
++        if let pendingFrame { appliedFrame = pendingFrame }
++        pendingFrame = nil
++    }
++
++    override func getAxRect(_ cm: CancellationMode) async throws -> Rect? {
++        appliedFrame.map { Rect(topLeftX: $0.minX, topLeftY: $0.minY, width: $0.width, height: $0.height) }
 +    }
 +}
 
@@ -1256,12 +1529,14 @@ diff --git a/docs/config-examples/default-config.toml b/docs/config-examples/def
 diff --git a/Sources/AppBundle/tree/Window.swift b/Sources/AppBundle/tree/Window.swift
 --- a/Sources/AppBundle/tree/Window.swift
 +++ b/Sources/AppBundle/tree/Window.swift
-@@ -40,6 +40,16 @@
+@@ -40,6 +40,18 @@
      func getCenter(_ cm: CancellationMode) async throws -> CGPoint? { try await getAxRect(cm)?.center }
  
      func setAxFrame(_ topLeft: CGPoint?, _ size: CGSize?) { die("Not implemented") }
 +    /// Cancel queued frame writes before the user takes over a window.
 +    func cancelAxFrame() {}
++    /// Cancel only an animation-owned write, never a newer explicit frame placement.
++    func cancelAnimationAxFrame() {}
 +    /// The window starts or stops animating; its app can hold per-app animation state in between.
 +    func animationStarted() {}
 +    func animationEnded() {}
@@ -1306,13 +1581,20 @@ diff --git a/Sources/AppBundle/tree/MacApp.swift b/Sources/AppBundle/tree/MacApp
          setFrameJobs[windowId] = withWindowAsync(windowId, .cancellable) { [axApp] window, job in
              try disableAnimations(app: axApp.threadGuarded, job) {
                  try setFrame(window, topLeft, size, job)
-@@ -156,8 +160,72 @@
+@@ -156,8 +160,79 @@
          }
      }
  
 +    func cancelAxFrame(_ windowId: UInt32) {
 +        setFrameJobs.removeValue(forKey: windowId)?.cancel()
 +        animationWrites.removeValue(forKey: windowId)?.complete(.cancelled)
++    }
++
++    func cancelAnimationAxFrame(_ windowId: UInt32) {
++        // Regular placement clears this token before submitting its job. Cleanup of an old animation must not
++        // cancel that newer job (for example the centering write immediately after `layout floating`).
++        guard animationWrites[windowId] != nil else { return }
++        cancelAxFrame(windowId)
 +    }
 +
 +    /// AXEnhancedUserInterface makes apps animate frame changes themselves and fight ours. `setAxFrame` turns it off
@@ -1380,7 +1662,24 @@ diff --git a/Sources/AppBundle/tree/MacApp.swift b/Sources/AppBundle/tree/MacApp
          let semaphore = DispatchSemaphore(value: 0)
          let job = withWindowAsync(windowId, .nonCancellable) { [axApp] window, job in
              try? disableAnimations(app: axApp.threadGuarded, job) {
-@@ -325,7 +393,7 @@
+@@ -213,14 +288,14 @@
+     }
+ 
+     func setNativeFullscreen(_ windowId: UInt32, _ value: Bool) {
+-        setFrameJobs.removeValue(forKey: windowId)?.cancel()
++        cancelAxFrame(windowId)
+         setFrameJobs[windowId] = withWindowAsync(windowId, .cancellable) { window, job in
+             window.set(Ax.isFullscreenAttr, value)
+         }
+     }
+ 
+     func setNativeMinimized(_ windowId: UInt32, _ value: Bool) {
+-        setFrameJobs.removeValue(forKey: windowId)?.cancel()
++        cancelAxFrame(windowId)
+         setFrameJobs[windowId] = withWindowAsync(windowId, .cancellable) { window, job in
+             window.set(Ax.minimizedAttr, value)
+         }
+@@ -325,7 +400,7 @@
          }
          windowsCount = alive.count
          for windowId in dead {
@@ -1389,7 +1688,7 @@ diff --git a/Sources/AppBundle/tree/MacApp.swift b/Sources/AppBundle/tree/MacApp
          }
          return alive
      }
-@@ -335,6 +403,8 @@
+@@ -335,6 +410,8 @@
          for (_, job) in setFrameJobs {
              job.cancel()
          }
@@ -1398,7 +1697,7 @@ diff --git a/Sources/AppBundle/tree/MacApp.swift b/Sources/AppBundle/tree/MacApp
          setFrameJobs = [:]
          thread?.runInLoopAsync(job: RunLoopJob(.nonCancellable)) { job in CFRunLoopStop(CFRunLoopGetCurrent()) }
          thread = nil // Disallow all future job submissions
-@@ -401,6 +471,11 @@
+@@ -401,6 +478,11 @@
      }
  }
  
