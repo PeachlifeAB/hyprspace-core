@@ -75,6 +75,9 @@ The active stack is the ordered list in `patches/series`. Each patch should prov
 - `hyprspace/modifier-drag-floating.patch`
   **modifier drag floating** — Adds a configurable modifier gesture that temporarily floats a window while dragging and retiles it at the drop point, splitting the window it is dropped on the way dwindle does.
 
+- `hyprspace/window-specific-focus.patch`
+  **window specific focus** — Fix cross-monitor window focus using the SkyLight sequence from AeroSpace PR #2179, with runtime checks and the public AX fallback.
+
 ## Patch files not currently in `patches/series`
 
 - `hyprspace/build-release-restore-generated-files.patch`

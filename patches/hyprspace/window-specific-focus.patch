@@ -1,0 +1,85 @@
+# Summary: Fix cross-monitor window focus using the SkyLight sequence from AeroSpace PR #2179, with runtime checks and the public AX fallback.
+
+diff --git a/Sources/AppBundle/tree/MacApp.swift b/Sources/AppBundle/tree/MacApp.swift
+index 22d9bde0..fc28075b 100644
+--- a/Sources/AppBundle/tree/MacApp.swift
++++ b/Sources/AppBundle/tree/MacApp.swift
+@@ -1,5 +1,6 @@
+ import AppKit
+ import Common
++import PrivateApi
+ 
+ // Potential alternative implementation
+ // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0392-custom-actor-executors.md
+@@ -130,6 +131,13 @@ final class MacApp: AbstractApp {
+     @MainActor func nativeFocus(_ windowId: UInt32) {
+         if serverArgs.isReadOnly { return }
+         MacApp.focusJob?.cancel()
++        // Focus the exact window before returning; app activation may restore another monitor's window.
++        if monitors.count > 1 && hyprspaceMakeKeyWindow(pid, windowId) {
++            MacApp.focusJob = withWindowAsync(windowId, .cancellable) { window, job in
++                AXUIElementPerformAction(window, kAXRaiseAction as CFString)
++            }
++            return
++        }
+         // Performance optimization. If possible avoid doing AX requests
+         // (important for apps which are slow at responding even such basic AX requests. E.g. Godot)
+         // Beware of the macOS bug: https://github.com/nikitabobko/AeroSpace/issues/101
+diff --git a/Sources/PrivateApi/include/private.h b/Sources/PrivateApi/include/private.h
+index 7c84de11..71d0544c 100644
+--- a/Sources/PrivateApi/include/private.h
++++ b/Sources/PrivateApi/include/private.h
+@@ -25,4 +25,7 @@
+ // func _AXUIElementGetWindow(_ axUiElement: AXUIElement, _ id: inout CGWindowID) -> AXError
+ AXError _AXUIElementGetWindow(AXUIElementRef element, uint32_t *identifier);
+ 
++// Window-specific focus; false means callers should use the public AX fallback.
++bool hyprspaceMakeKeyWindow(pid_t pid, uint32_t windowId);
++
+ #endif
+diff --git a/Sources/PrivateApi/include/private.m b/Sources/PrivateApi/include/private.m
+index 6b886396..1f5b8226 100644
+--- a/Sources/PrivateApi/include/private.m
++++ b/Sources/PrivateApi/include/private.m
+@@ -1,2 +1,41 @@
+ // This file exists purely because xcode doesn't like header only targets, SPM is fine with them
+ #import "private.h"
++
++#import <Carbon/Carbon.h>
++#import <dispatch/dispatch.h>
++#import <dlfcn.h>
++#import <string.h>
++
++// WindowServer focus sequence used by Amethyst/yabai and AeroSpace PR #2179.
++// https://github.com/nikitabobko/AeroSpace/pull/2179
++bool hyprspaceMakeKeyWindow(pid_t pid, uint32_t windowId) {
++    typedef CGError (*FrontProcess)(ProcessSerialNumber *, uint32_t, uint32_t);
++    typedef CGError (*PostEvent)(ProcessSerialNumber *, uint8_t *);
++    static FrontProcess frontProcess;
++    static PostEvent postEvent;
++    static dispatch_once_t once;
++    dispatch_once(&once, ^{
++        void *library = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY | RTLD_LOCAL);
++        if (library) {
++            frontProcess = (FrontProcess)dlsym(library, "_SLPSSetFrontProcessWithOptions");
++            postEvent = (PostEvent)dlsym(library, "SLPSPostEventRecordTo");
++        }
++    });
++    if (!frontProcess || !postEvent) return false;
++    ProcessSerialNumber process;
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wdeprecated-declarations"
++    if (GetProcessForPID(pid, &process) != noErr) return false;
++#pragma clang diagnostic pop
++    // kCPSUserGenerated marks this window-specific activation as user initiated.
++    if (frontProcess(&process, windowId, 0x200) != kCGErrorSuccess) return false;
++    uint8_t event[0xf8] = {0};
++    event[0x04] = 0xf8;
++    event[0x3a] = 0x10;
++    memcpy(event + 0x3c, &windowId, sizeof(windowId));
++    memset(event + 0x20, 0xff, 0x10);
++    event[0x08] = 0x01;
++    if (postEvent(&process, event) != kCGErrorSuccess) return false;
++    event[0x08] = 0x02;
++    return postEvent(&process, event) == kCGErrorSuccess;
++}
