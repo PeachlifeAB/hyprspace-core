@@ -1,4 +1,4 @@
-# Summary: Implements a Hyprland-style dwindle insertion strategy based on the most recently used tiled window.
+# Summary: Hyprland-style dwindle: new windows split the most recent tiled window, and normalization keeps the tiling tree binary with every split following its box unless the user flipped it.
 
 diff --git a/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift b/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift
 --- a/Sources/AppBundle/command/impl/MoveNodeToWorkspaceCommand.swift
@@ -45,38 +45,17 @@ diff --git a/Sources/AppBundle/tree/MacWindow.swift b/Sources/AppBundle/tree/Mac
          bind(to: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
      }
  }
-@@ -224,8 +232,34 @@
+@@ -224,8 +232,13 @@
  @MainActor
  private func unbindAndGetBindingDataForNewTilingWindow(_ workspace: Workspace, window: Window?) -> BindingData {
      window?.unbindFromParent() // It's important to unbind to get correct data from below
 -    let mruWindow = workspace.mostRecentWindowRecursive
 +    let mruWindow = workspace.rootTilingContainer.mostRecentWindowRecursive
      if let mruWindow, let tilingParent = mruWindow.parent as? TilingContainer {
-+        if tilingParent.children.count >= 2 {
-+            let newOrientation: Orientation
-+            if let rect = mruWindow.lastAppliedLayoutVirtualRect {
-+                newOrientation = rect.width > rect.height ? .h : .v
-+            } else {
-+                newOrientation = tilingParent.orientation.opposite
-+            }
-+            let weight = mruWindow.getWeight(tilingParent.orientation)
-+            let index = mruWindow.ownIndex.orDie()
-+
-+            let newContainer = TilingContainer(
-+                parent: tilingParent,
-+                adaptiveWeight: weight,
-+                newOrientation,
-+                .tiles,
-+                index: index
-+            )
-+
-+            mruWindow.bind(to: newContainer, adaptiveWeight: WEIGHT_AUTO, index: 0)
-+
-+            return BindingData(
-+                parent: newContainer,
-+                adaptiveWeight: WEIGHT_AUTO,
-+                index: 1
-+            )
++        if tilingParent.children.count >= 2,
++           let rect = workspace.dwindleLeafRects().first(where: { $0.0 === mruWindow })?.1
++        {
++            return dwindleSplit(mruWindow, at: rect)
 +        }
          return BindingData(
              parent: tilingParent,
@@ -85,13 +64,21 @@ diff --git a/Sources/AppBundle/tree/MacWindow.swift b/Sources/AppBundle/tree/Mac
 diff --git a/Sources/AppBundle/tree/normalizeContainers.swift b/Sources/AppBundle/tree/normalizeContainers.swift
 --- a/Sources/AppBundle/tree/normalizeContainers.swift
 +++ b/Sources/AppBundle/tree/normalizeContainers.swift
-@@ -1,3 +1,5 @@
+@@ -1,9 +1,10 @@
 +import Common
 +
  extension Workspace {
      @MainActor func normalizeContainers() {
          rootTilingContainer.unbindEmptyAndAutoFlatten() // Beware! rootTilingContainer may change after this line of code
-@@ -24,8 +26,18 @@
+-        if config.enableNormalizationOppositeOrientationForNestedContainers {
+-            rootTilingContainer.normalizeOppositeOrientationForNestedContainers()
+-        }
++        // Replaces opposite-orientation normalization: dwindle splits follow their boxes, not their parents.
++        normalizeDwindleTree()
+     }
+ }
+ 
+@@ -24,8 +25,18 @@
              for child in children {
                  (child as? TilingContainer)?.unbindEmptyAndAutoFlatten()
              }
@@ -117,7 +104,7 @@ diff --git a/Sources/AppBundleTests/tree/DwindleBugTest.swift b/Sources/AppBundl
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundleTests/tree/DwindleBugTest.swift
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,69 @@
 +@testable import AppBundle
 +import XCTest
 +
@@ -127,6 +114,7 @@ new file mode 100644
 +
 +    func testDwindleLayoutStateAfterDeletion() async throws {
 +        config.enableNormalizationFlattenContainers = true
++        config.enableNormalizationOppositeOrientationForNestedContainers = true
 +        let workspace = Workspace.get(byName: name)
 +        
 +        XCTAssertEqual(workspace.rootTilingContainer.orientation, .h)
@@ -158,9 +146,9 @@ new file mode 100644
 +        w1.unbindFromParent()
 +        workspace.normalizeContainers()
 +        
-+        // Now what is the root container? It should be the V container since H container had only 1 child (V container).
-+        // Wait, yes, the H container (root) gets flattened! So the new root is V container!
-+        XCTAssertEqual(workspace.rootTilingContainer.orientation, .v)
++        // The H root is flattened away and the V container becomes the root. It now fills the whole landscape
++        // screen, so like Hyprland it splits side by side again.
++        XCTAssertEqual(workspace.rootTilingContainer.layoutDescription, .h_tiles([.window(2), .window(3)]))
 +        
 +        // 4. Delete all
 +        w2.unbindFromParent()
@@ -191,7 +179,7 @@ diff --git a/Sources/AppBundleTests/tree/DwindleLayoutTest.swift b/Sources/AppBu
 new file mode 100644
 --- /dev/null
 +++ b/Sources/AppBundleTests/tree/DwindleLayoutTest.swift
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,294 @@
 +@testable import AppBundle
 +import XCTest
 +
@@ -279,6 +267,103 @@ new file mode 100644
 +                ])
 +            ])
 +        )
++    }
++
++    func testNormalizationFoldsWideContainersIntoADwindleChain() {
++        config.enableNormalizationFlattenContainers = true
++        config.enableNormalizationOppositeOrientationForNestedContainers = true
++        let workspace = Workspace.get(byName: name)
++        workspace.rootTilingContainer.apply {
++            for id: UInt32 in 1 ... 4 {
++                TestWindow.new(id: id, parent: $0)
++            }
++        }
++        workspace.normalizeContainers()
++        assertEquals(
++            workspace.rootTilingContainer.layoutDescription,
++            .h_tiles([.window(1), .v_tiles([.window(2), .h_tiles([.window(3), .window(4)])])]),
++        )
++    }
++
++    func testSplitsTurnWithTheirBoxAndKeepTheirProportions() {
++        config.enableNormalizationFlattenContainers = true
++        config.enableNormalizationOppositeOrientationForNestedContainers = true
++        let workspace = Workspace.get(byName: name)
++        workspace.rootTilingContainer.changeOrientation(.v)
++        workspace.rootTilingContainer.apply {
++            TestWindow.new(id: 1, parent: $0, adaptiveWeight: 700)
++            TestWindow.new(id: 2, parent: $0, adaptiveWeight: 300)
++        }
++        workspace.normalizeContainers()
++        let root = workspace.rootTilingContainer
++        assertEquals(root.orientation, .h)
++        let widths = root.children.map { $0.getWeight(.h) }
++        assertEquals((widths[0] / (widths[0] + widths[1]) * 100).rounded(), 70)
++        assertEquals(widths.reduce(0, +).rounded(), 1920)
++    }
++
++    func testFlippedSplitStaysFlippedUntilItGoesAway() async throws {
++        config.enableNormalizationFlattenContainers = true
++        config.enableNormalizationOppositeOrientationForNestedContainers = true
++        let workspace = Workspace.get(byName: name)
++        var window3: TestWindow!
++        workspace.rootTilingContainer.apply {
++            TestWindow.new(id: 1, parent: $0)
++            TilingContainer.newVTiles(parent: $0, adaptiveWeight: 1).apply {
++                TestWindow.new(id: 2, parent: $0)
++                window3 = TestWindow.new(id: 3, parent: $0)
++            }
++        }
++        workspace.normalizeContainers()
++        assertTrue(window3.focusWindow())
++
++        // `changeOrientation` turns the root along with the split; only the split keeps its flip.
++        await parseCommand("layout tiles horizontal vertical").cmdOrDie.run(.defaultEnv, .emptyStdin)
++        workspace.normalizeContainers()
++        assertEquals(workspace.rootTilingContainer.layoutDescription, .h_tiles([.window(1), .h_tiles([.window(2), .window(3)])]))
++        workspace.normalizeContainers()
++        assertEquals(workspace.rootTilingContainer.layoutDescription, .h_tiles([.window(1), .h_tiles([.window(2), .window(3)])]))
++
++        // Flipping it back is a flip too.
++        await parseCommand("layout tiles horizontal vertical").cmdOrDie.run(.defaultEnv, .emptyStdin)
++        workspace.normalizeContainers()
++        assertEquals(workspace.rootTilingContainer.layoutDescription, .h_tiles([.window(1), .v_tiles([.window(2), .window(3)])]))
++
++        // Once the split loses a window, the next split there follows its box again.
++        await parseCommand("layout tiles horizontal vertical").cmdOrDie.run(.defaultEnv, .emptyStdin)
++        workspace.normalizeContainers()
++        window3.unbindFromParent()
++        workspace.normalizeContainers()
++        let window4 = TestWindow.new(id: 4, parent: macosPopupWindowsContainer)
++        try await window4.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
++        workspace.normalizeContainers()
++        assertEquals(workspace.rootTilingContainer.layoutDescription, .h_tiles([.window(1), .v_tiles([.window(2), .window(4)])]))
++    }
++
++    func testPinnedSplitSurvivesAFlipBelowIt() async throws {
++        config.enableNormalizationFlattenContainers = true
++        config.enableNormalizationOppositeOrientationForNestedContainers = true
++        let workspace = Workspace.get(byName: name)
++        var window1: TestWindow!
++        var window3: TestWindow!
++        workspace.rootTilingContainer.apply {
++            window1 = TestWindow.new(id: 1, parent: $0)
++            TilingContainer.newVTiles(parent: $0, adaptiveWeight: 1).apply {
++                TestWindow.new(id: 2, parent: $0)
++                window3 = TestWindow.new(id: 3, parent: $0)
++            }
++        }
++        workspace.normalizeContainers()
++        assertTrue(window1.focusWindow())
++        await parseCommand("layout tiles horizontal vertical").cmdOrDie.run(.defaultEnv, .emptyStdin)
++        workspace.normalizeContainers()
++        // The root is pinned stacked; its lower half is now wide, so it splits side by side.
++        assertEquals(workspace.rootTilingContainer.layoutDescription, .v_tiles([.window(1), .h_tiles([.window(2), .window(3)])]))
++
++        assertTrue(window3.focusWindow())
++        await parseCommand("layout tiles horizontal vertical").cmdOrDie.run(.defaultEnv, .emptyStdin)
++        workspace.normalizeContainers()
++        assertEquals(workspace.rootTilingContainer.layoutDescription, .v_tiles([.window(1), .v_tiles([.window(2), .window(3)])]))
 +    }
 +
 +    func testDwindleLayoutDeletion() async throws {
@@ -387,5 +472,181 @@ new file mode 100644
 +                ])
 +            ])
 +        )
++    }
++}
+
+diff --git a/Sources/AppBundle/tree/dwindleTree.swift b/Sources/AppBundle/tree/dwindleTree.swift
+new file mode 100644
+--- /dev/null
++++ b/Sources/AppBundle/tree/dwindleTree.swift
+@@ -0,0 +1,170 @@
++import AppKit
++import Common
++
++// Hyprland's dwindle is a strictly binary tree whose splits follow the boxes they divide: a box wider than it is tall
++// splits side by side, anything else splits top and bottom, re-decided on every layout. A split the user flips keeps
++// its flip until it goes away. AeroSpace's tree lets a container hold any number of children and stores each
++// container's orientation, so `normalizeContainers` reshapes it into that form after every command, whatever the
++// command did to it.
++
++extension Workspace {
++    /// The rect the tiling tree is laid out in, as `layoutWorkspace` sees it, down to its `height - 1`: near-square
++    /// boxes must pick the same split direction here as in the real layout.
++    @MainActor var dwindleRect: Rect {
++        let rect = workspaceMonitor.visibleRectPaddedByOuterGaps
++        return Rect(topLeftX: rect.topLeftX, topLeftY: rect.topLeftY, width: rect.width, height: rect.height - 1)
++    }
++
++    /// Each half rides on the upstream normalization it stands in for, so turning that off turns this off too.
++    @MainActor func normalizeDwindleTree() {
++        let mruWindow = mostRecentWindowRecursive
++        if config.enableNormalizationFlattenContainers && rootTilingContainer.binarize() {
++            mruWindow?.markAsMostRecentChild() // rebinding nodes reorders MRU; keep the focused branch on top
++        }
++        if config.enableNormalizationOppositeOrientationForNestedContainers {
++            _ = rootTilingContainer.pinFlippedSplits()
++            rootTilingContainer.orientSplits(in: dwindleRect)
++        }
++    }
++
++    /// Where every dwindle leaf would land if the workspace were laid out now, as if inner gaps were zero. A leaf is a
++    /// window, or a whole accordion stack: its windows overlap, so they say nothing about what is next to what.
++    @MainActor func dwindleLeafRects() -> [(TreeNode, Rect)] {
++        var result: [(TreeNode, Rect)] = []
++        func visit(_ node: TreeNode, _ rect: Rect) {
++            if let container = node as? TilingContainer, container.layout == .tiles {
++                for (child, childRect) in zip(container.children, container.dwindleChildRects(in: rect)) {
++                    visit(child, childRect)
++                }
++            } else {
++                result.append((node, rect))
++            }
++        }
++        if !rootTilingContainer.children.isEmpty {
++            visit(rootTilingContainer, dwindleRect)
++        }
++        return result
++    }
++}
++
++private let orientedSplitKey = TreeNodeUserDataKey<Orientation>(key: "dwindleOrientedSplit")
++private let pinnedSplitKey = TreeNodeUserDataKey<Orientation>(key: "dwindlePinnedSplit")
++
++/// Hyprland's split direction for a box: side by side when wider than tall, stacked otherwise.
++func dwindleSplitOrientation(of rect: Rect) -> Orientation { rect.width >= rect.height ? .h : .v }
++
++/// Splits `target`, laid out at `targetRect`, the way Hyprland does: along its longer side, into a new container that
++/// takes `target`'s slot. Returns where the incoming window binds: the half `focal` falls in, or the second half.
++@MainActor
++func dwindleSplit(_ target: TreeNode, at targetRect: Rect, toward focal: CGPoint? = nil) -> BindingData {
++    guard let parent = target.parent as? TilingContainer, let index = target.ownIndex else {
++        die("Only nodes in a tiling container can be split")
++    }
++    let orientation = dwindleSplitOrientation(of: targetRect)
++    let weight = target.getWeight(parent.orientation)
++    let split = TilingContainer(parent: parent, adaptiveWeight: weight, orientation, .tiles, index: index)
++    target.bind(to: split, adaptiveWeight: WEIGHT_AUTO, index: 0)
++    let first = focal.map { $0.getProjection(orientation) < targetRect.center.getProjection(orientation) } ?? false
++    return BindingData(parent: split, adaptiveWeight: WEIGHT_AUTO, index: first ? 0 : 1)
++}
++
++extension TilingContainer {
++    /// Hyprland's removal: once a split is down to one child, that child takes the split's slot and size. The root
++    /// keeps a lone window, but hands its slot to a lone container.
++    @MainActor @discardableResult func promoteLoneChild() -> Bool {
++        guard let child = children.singleOrNil(), !(isRootContainer && child is Window) else { return false }
++        child.unbindFromParent()
++        let binding = unbindFromParent()
++        child.bind(to: binding.parent, adaptiveWeight: binding.adaptiveWeight, index: binding.index)
++        return true
++    }
++
++    /// The virtual rects `layoutTiles` gives the children when this container fills `rect`.
++    @MainActor func dwindleChildRects(in rect: Rect) -> [Rect] {
++        let weights = children.map { $0.getWeight(orientation) }
++        guard let delta = (rect.getDimension(orientation) - weights.reduce(0, +)).div(children.count) else { return [] }
++        var start = orientation == .h ? rect.minX : rect.minY
++        return weights.map { weight in
++            let length = weight + delta
++            defer { start += length }
++            return orientation == .h
++                ? Rect(topLeftX: start, topLeftY: rect.minY, width: length, height: rect.height)
++                : Rect(topLeftX: rect.minX, topLeftY: start, width: rect.width, height: length)
++        }
++    }
++
++    /// Folds wider containers into right-leaning binary chains (`[a, b, c]` becomes `[a, [b, c]]`, which is the
++    /// shape dwindle builds when windows open one after another) with Hyprland's default even splits, and promotes
++    /// lone children. Accordion stacks are left alone. Returns whether anything moved.
++    @MainActor fileprivate func binarize() -> Bool {
++        guard layout == .tiles else { return false }
++        var changed = false
++        if children.count > 2 {
++            let rest = Array(children.dropFirst())
++            let tail = TilingContainer(parent: self, adaptiveWeight: WEIGHT_AUTO, orientation, .tiles, index: INDEX_BIND_LAST)
++            for child in rest {
++                child.bind(to: tail, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
++            }
++            for child in children {
++                child.setWeight(orientation, 1)
++            }
++            changed = true
++        }
++        for child in children {
++            if (child as? TilingContainer)?.binarize() == true { changed = true }
++        }
++        return promoteLoneChild() || changed
++    }
++
++    /// Pins every split a command flipped (`layout tiles horizontal vertical`) to its new orientation for as long as
++    /// the split exists. Hyprland's `preserve_split`, but only for splits the user turned. A flipped split is one
++    /// whose orientation differs from what `orientSplits` last left it in. `changeOrientation` flips the ancestors
++    /// along with the target, so only the deepest flipped split is pinned. Returns whether anything here was flipped.
++    @MainActor fileprivate func pinFlippedSplits() -> Bool {
++        guard layout == .tiles else { return false }
++        var flippedBelow = false
++        for child in children {
++            if (child as? TilingContainer)?.pinFlippedSplits() == true { flippedBelow = true }
++        }
++        guard let oriented = getUserData(key: orientedSplitKey), oriented != orientation else { return flippedBelow }
++        if !flippedBelow && children.count == 2 {
++            putUserData(key: pinnedSplitKey, data: orientation)
++        }
++        return true
++    }
++
++    /// Points every split along the longer side of its box, or its pinned orientation, rescaling the children so
++    /// they keep their proportions.
++    @MainActor fileprivate func orientSplits(in rect: Rect) {
++        guard layout == .tiles else { return }
++        let orientation = getUserData(key: pinnedSplitKey) ?? dwindleSplitOrientation(of: rect)
++        let previous = getUserData(key: orientedSplitKey) ?? self.orientation
++        if orientation != self.orientation {
++            setOwnOrientation(orientation)
++        }
++        if orientation != previous {
++            let weights = children.map { $0.getWeight(orientation) }
++            let total = weights.reduce(0, +)
++            let length = rect.getDimension(orientation)
++            for (child, weight) in zip(children, weights) {
++                child.setWeight(orientation, total > 0 ? weight / total * length : length / CGFloat(children.count))
++            }
++        }
++        putUserData(key: orientedSplitKey, data: orientation)
++        for (child, childRect) in zip(children, dwindleChildRects(in: rect)) {
++            (child as? TilingContainer)?.orientSplits(in: childRect)
++        }
++    }
++
++    /// `changeOrientation` also flips every ancestor when opposite-orientation normalization is on, but a split that
++    /// follows its own box may match its parent. Put the ancestors back nearest first: restoring one only touches it
++    /// and the containers above it.
++    @MainActor private func setOwnOrientation(_ orientation: Orientation) {
++        let ancestors = parents.filterIsInstance(of: TilingContainer.self)
++        let saved = ancestors.map(\.orientation)
++        changeOrientation(orientation)
++        for (ancestor, orientation) in zip(ancestors, saved) {
++            ancestor.changeOrientation(orientation)
++        }
 +    }
 +}

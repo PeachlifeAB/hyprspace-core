@@ -31,7 +31,7 @@ The active stack is the ordered list in `patches/series`. Each patch should prov
   **new window or open** — Adds new-window-or-open, which opens an app if it is closed and triggers its menu-bar “New Window” action if it is already running.
 
 - `hyprspace/dwindle-layout.patch`
-  **dwindle layout** — Implements a Hyprland-style dwindle insertion strategy based on the most recently used tiled window.
+  **dwindle layout** — Hyprland-style dwindle: new windows split the most recent tiled window, and normalization keeps the tiling tree binary with every split following its box unless the user flipped it.
 
 - `hyprspace/default-config-alt-b.patch`
   **default config alt b** — Changes the starter browser shortcut so alt-b opens or creates Safari instead of switching to workspace B.
@@ -76,7 +76,7 @@ The active stack is the ordered list in `patches/series`. Each patch should prov
   **modifier drag floating** — Adds a configurable modifier gesture that temporarily floats a window while dragging and retiles it at the drop point, splitting the window it is dropped on the way dwindle does.
 
 - `hyprspace/dwindle-move.patch`
-  **dwindle move** — Hyprland-style dwindle move: `move <dir>` reinserts the window by splitting the window past its edge, keeping the tree binary.
+  **dwindle move** — Hyprland-style dwindle move: `move <dir>` swaps with a lone sibling or reinserts the window by splitting whatever lies past its edge, keeping the tree binary.
 
 - `hyprspace/window-animations.patch`
   **window animations** — Spring-based window animations: tiled windows glide to new frames (configurable via [animations], off with Reduce Motion).
