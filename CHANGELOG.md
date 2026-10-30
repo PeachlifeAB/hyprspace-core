@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Current `Hyprspace` patches are based on AeroSpace v0.21.3-Beta
 
+## [Unreleased]
+
+### Added
+
+- Window animations: tiled windows glide to their new positions on a spring instead of jumping. Two styles under `[animations] style`: `fancy` (default) animates on a soft spring, and a window that both moves and resizes shrinks, slides and grows in separate phases so its edges don't wobble; `fast` slides windows on a stiffer spring and resizes them once, so heavy apps (browsers, terminals, Electron) keep up. Also `enabled` and `duration-ms`. Off while macOS's Reduce Motion is on.
+
+### Changed
+
+- `move <direction>` now behaves like Hyprland's dwindle `movewindow`: the window is reinserted by splitting the window just past its edge, taking the half nearest to where it came from, so the tree stays a binary dwindle instead of growing extra columns. At the workspace edge and inside accordion containers it falls back to the previous behavior, so moving to another monitor still works.
+
 ## [0.4.0] - 2026-09-20
 
 ### Added

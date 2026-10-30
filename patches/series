@@ -21,3 +21,5 @@ hyprspace/single-window-gaps.patch
 hyprspace/resize-floating-windows.patch
 hyprspace/center-floated-window.patch
 hyprspace/modifier-drag-floating.patch
+hyprspace/dwindle-move.patch
+hyprspace/window-animations.patch

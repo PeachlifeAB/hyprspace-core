@@ -32,6 +32,18 @@ exec-on-workspace-change = [
 enabled = true
 modifier = 'alt'
 
+# Tiled windows glide to their new positions instead of jumping. Off while macOS's Reduce Motion is on.
+[animations]
+# true enables animations; false makes windows jump immediately. Default: true.
+enabled = true
+# Approximate animation duration in milliseconds: integer 0–1000. Default: 150.
+# 0 disables animation; larger values give a slower glide.
+duration-ms = 150
+# Available styles (default: 'fancy'):
+# 'fancy' animates movement and resizing on a soft spring; combined changes shrink, slide, then grow.
+# 'fast' slides on a stiffer spring with resizing at the endpoints, so heavy apps keep up.
+style = 'fancy'
+
 [gaps]
 inner.horizontal = 18
 inner.vertical = 18
